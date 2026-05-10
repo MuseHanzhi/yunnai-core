@@ -1,0 +1,5 @@
+name: "cli_plugin"
+author: "慕色寒枝"
+version: "1.0.0"
+description: "命令行交互模式插件"
+entry: "plugin.CliPlugin"
