@@ -22,11 +22,6 @@ logger = LogCreator.instance.create(__name__)
 class Application:
     """
     **核心类**
-
-    - 异步事件循环  : 完成度(100%)
-    - 触发插件Hooks : 完成度(100%)
-    - LLM       : 完成度(100%)
-    - 插件管理  : 完成度(100%) 
     """
     def __init__(self):
         # 基础
