@@ -1,6 +1,7 @@
 import asyncio
 from typing import Callable
 
+from src.core import app_context
 from src.types.lfecycle_hooks import Hooks
 from .plugin import Plugin
 
@@ -14,4 +15,4 @@ class HookMetadata:
     def run(self, *args, **arguments):
         call = self.hook_func(self.plugin, *args, **arguments)
         if asyncio.iscoroutine(call):
-            asyncio.get_event_loop().run_until_complete(call)
+            app_context.event_loop.run_until_complete(call)
