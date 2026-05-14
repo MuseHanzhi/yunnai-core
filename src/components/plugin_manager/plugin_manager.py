@@ -133,7 +133,7 @@ class PluginManager:
         return plugin.emit(name, arguments)
 
 
-    def trigger(self, hook_name: Hooks, ipc_timing: IPCTiming, *args, **arguments):
+    async def trigger(self, hook_name: Hooks, ipc_timing: IPCTiming, *args, **arguments):
         if ipc_timing == "before":
             hooks = self.ipc_before_hooks.get(hook_name, [])
         elif ipc_timing == "after":
@@ -145,6 +145,6 @@ class PluginManager:
             if not hook.enable:
                 continue
             try:
-                hook.run(*args, **arguments)
+                await hook.run(*args, **arguments)
             except Exception as err:
                 logger.error(f"plugin '{hook.plugin.info.name}' hook '{hook_name}' exception", exc_info=err)

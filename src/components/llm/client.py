@@ -1,10 +1,19 @@
 from typing import AsyncGenerator, Any
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from mcp.types import Tool
 
+from .message.message import Message
+from .message.user_message import UserMessage
+from .message.tool_message import ToolMessage
 from .message_state import MessageState
 from .types import *
+
+from pydantic import BaseModel
+class User(BaseModel):
+    username: str
+    nickname: str
 
 class Client:
     def __init__(self):
@@ -17,59 +26,73 @@ class Client:
         self._client.api_key = credential["api_key"]
         self._client.base_url = credential["base_url"]
         self.default_extra_body = extra_body
-    
-    def _build_last_message(self, state: MessageState):
-        message = f"# User Question  \n{state.input}"
-        if state.type == "tool":
-            message = f"# Call Result  \n{state.input}"
 
-        return {
-            "role": "user",
-            "content": [
-                *state.resources,
-                {
-                    "type": "text",
-                    "text": message
-                },
-                {
-                    "type": "text",
-                    "text": f"# Support MCP Servers \n{ '\n'.join([f'{mcp["name"]}: {mcp["desc"]}' for mcp in state.mcp_list]) }"
-                },
-                {
-                    "type": "text",
-                    "text": f"# Available Agent Skills  \n{ '\n'.join([f'{skill["name"]}: {skill["desc"]}' for skill in state.skills if 'name' in skill and 'desc' in skill]) }"
-                },
-                {
-                    "type": "text",
-                    "text": f"# Additional Information  \n{state.dyn_prompt}"
+    def _map_tools(self, tools: list[Tool]):
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description or "No description provided.",
+                    "parameters": tool.inputSchema
                 }
-            ]
-        }
+            }
+            for tool in tools
+        ]
+
+    def _build_sys_prompt(self, top_prompt: str, dyn_prompt: str, mcp_list: list[MCPData], skill_list: list[SkillData]):
+        mcp_prompt = ""
+        skill_prompt = ""
+        t_dyn_prompt = ""
+
+        if mcp_list:
+            mcp_prompt = f"# Support MCP Servers \n{ '\n'.join([f'{mcp["name"]}: {mcp["desc"]}' for mcp in mcp_list]) }\n"
+        if skill_list:
+            skill_prompt = f"# Available Agent Skills  \n{ '\n'.join([f'{skill["name"]}: {skill["desc"]}' for skill in skill_list if 'name' in skill and 'desc' in skill]) }\n"
+        if dyn_prompt:
+            t_dyn_prompt = dyn_prompt
+
+        return f"{top_prompt}{mcp_prompt}{skill_prompt}{t_dyn_prompt}"
 
     def _build_params(self, state: MessageState):
         params = {
             "model": state.model_name,
             "stream": state.is_stream,
+            "tools": self._map_tools(state.tools),
             "messages": [
                 {
                     "role": "system",
-                    "content": state.top_prompt
+                    "content": self._build_sys_prompt(state.top_prompt, state.dyn_prompt, state.mcp_list, state.skills)
                 },
-                *state.messages
-            ]
+                *state.messages,
+                state.message.get_message()
+            ],
         }
 
-        last_message = self._build_last_message(state)
-        params["messages"].append(last_message)
+        if state.output_schema is not None:
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": state.output_schema.name,
+                    "schema": state.output_schema.json_schema,
+                    "strict": state.output_schema.strict
+                }
+            }
         
         if state.extra_body:
             params["extra_body"] = state.extra_body
         
         state.messages = params["messages"]
         return params
+
+    def create_user_state(self, model_name: str, message: UserMessage, is_stream: bool = True):
+        return self.create_state(model_name, message, is_stream)
     
-    def create_state(self, model_name: str, input: str, is_stream: bool = True):
-        state = MessageState(model_name, input=input, is_stream=is_stream)
+    def create_tool_state(self, model_name: str, message: ToolMessage, is_stream: bool = True):
+        return self.create_state(model_name, message, is_stream)
+    
+    def create_state(self, model_name: str, message: Message, is_stream: bool = True):
+        state = MessageState(model_name, message=message, is_stream=is_stream)
         state.extra_body = self.default_extra_body
         return state
 
@@ -93,4 +116,3 @@ class Client:
                 yield chunk
         except:
             raise
-        

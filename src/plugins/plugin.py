@@ -38,13 +38,7 @@ class Plugin:
         """
         ...
     
-    def on_app_after_initialized(self):
-        """
-        应用程序初始化后触发
-        """
-        ...
-    
-    def on_llm_response(self, chat_completion: ChatCompletionChunk | ChatCompletion):
+    def on_llm_response(self, chat_completion: ChatCompletionChunk | ChatCompletion | Exception):
         """
         **大模型响应时触发**  
         建议不要在此Hook执行的过程中调用主程序的send_message操作，因为插件机制的原因可能会导致深度递归

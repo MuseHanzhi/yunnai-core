@@ -12,7 +12,7 @@ class HookMetadata:
         self.hook_name: Hooks = hook_name
         self.plugin = plugin
         self.enable = True
-    def run(self, *args, **arguments):
+    async def run(self, *args, **arguments):
         call = self.hook_func(self.plugin, *args, **arguments)
         if asyncio.iscoroutine(call):
-            app_context.event_loop.run_until_complete(call)
+            await call

@@ -1,4 +1,4 @@
-import click
+import asyncio
 from dotenv import load_dotenv
 import sys
 import os
@@ -23,21 +23,28 @@ def env_check():
             logger.warning(f"[{env_name}] === FAIL")
             continue
         logger.info(f"[{env_name}] === PASS")
-    return result    
+    return result
 
 def main():
-
-
+    event_loop = asyncio.get_event_loop()
+    app_context.event_loop = event_loop
     if not env_check():
-        logger.error("Environment check failed. Please check the environment variables.")
-        sys.exit(1)
+        sys.exit("Environment check failed. Please check the environment variables.")
+
     try:
-        main_app = Application()
+        main_app = Application(event_loop)
         main_app.initialize()
-        sys.exit(main_app.run())
+        main_app.ready()
+        logger.info("start event loop")
+        event_loop.run_forever()
+        main_app.will_close()
+    except KeyboardInterrupt:
+        main_app.exit()
+        sys.exit("keyboard interrupt detected, exiting...")
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
+        logger.error(f"running exception: {e}")
         sys.exit(1)
+        
     
 load_dotenv()
 

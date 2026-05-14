@@ -73,4 +73,4 @@ class LaunchArgs(TypedDict):
     """
     ipc_uri: str | None
     default_llm: str | None
-    llm_api_key: str | None
+    config_path: str | None

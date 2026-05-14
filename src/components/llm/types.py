@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from typing import (
     TypedDict,
     Required,
@@ -26,3 +27,19 @@ class TextResourceOptions(TypedDict):
     text: str
 
 ResourceOptions = Union[ImageResourceOptions, AudioResourceOptions, FileResourceOptions, TextResourceOptions]
+
+
+# MCP
+class MCPData(TypedDict):
+    name: str
+    desc: str
+
+# Skill
+class SkillData(TypedDict):
+    name: str
+    desc: str
+
+class OutputShema(BaseModel):
+    name: str
+    json_schema: dict
+    strict: bool

@@ -14,19 +14,21 @@ from src.components.plugin_manager.plugin_manager import PluginManager
 from src.core.logger.logger import LogCreator
 from src.components.ipc.ipc import IPCServer
 from src.ipc_handlers.ipc_handler import IPCHandler
-from src.core import app_context
+from src.components.llm.message.tool_message import ToolMessage
+from src.components.llm.message.user_message import UserMessage
 
 from src.types.send_message_options import SendMessageOptions
+from src.core import app_context
 
 logger = LogCreator.instance.create(__name__)
 class Application:
     """
     **核心类**
     """
-    def __init__(self):
+    def __init__(self, event_loop: asyncio.AbstractEventLoop):
         # 基础
         self.thread_executor = ThreadPoolExecutor(app_context.app_config["system"]["thread_workers"])
-        self.event_loop = asyncio.new_event_loop()
+        self.event_loop = event_loop
         
         # 组件
         self.plugin_manager = PluginManager()
@@ -37,8 +39,10 @@ class Application:
         self.completed_text = ""
     
     def on_ipc_ready(self):
-        self.plugin_manager.trigger("on_ready", "before")
-        self.plugin_manager.trigger("on_ready", "after")
+        self.event_loop.create_task(self.plugin_manager.trigger("on_ready", "before"))
+        self.event_loop.create_task(self.plugin_manager.trigger("on_ready", "after"))
+        
+        
         if self.ipc_server.is_connected:
             logger.info(f"connect ipc -> {self.ipc_server.ipc_uri}")
             handler = IPCHandler(self, self.ipc_server)
@@ -106,7 +110,6 @@ class Application:
 
     def initialize(self):
         logger.info("application initialize")
-        app_context.event_loop = self.event_loop
         
         self._setup_llm()
 
@@ -117,26 +120,11 @@ class Application:
         self.plugin_manager.initialize(app_context.app_config["plugin_config"])
         logger.info("setup plugin manager ok")
 
-        self.plugin_manager.trigger(
-            "on_app_before_initialize",
-            "before",
-            app = self
-            )
-        self.plugin_manager.trigger(
-            "on_app_before_initialize",
-            "after",
-            app = self
-            )
-
         # 触发插件对应时机
-        self.plugin_manager.trigger(
-            "on_app_after_initialized",
-            "before"
-            )
-        self.plugin_manager.trigger(
-            "on_app_after_initialized",
-            "after"
-            )
+        asyncio.gather(
+            self.plugin_manager.trigger("on_app_initialize", "before", app=self),
+            self.plugin_manager.trigger("on_app_initialize", "after", app=self)
+        )
         logger.info("app initialized")
     
     async def _start_response(self, state: MessageState, ipc_request_id: str | None = None):
@@ -150,7 +138,7 @@ class Application:
                     if not is_start:
                         logger.info(f"llm stream response start: {(time.time() * 1000) - start_ms}ms")
                         is_start = True
-                    self.plugin_manager.trigger(
+                    await self.plugin_manager.trigger(
                         "on_llm_response",
                         "before",
                         chat_completion = chunk
@@ -161,7 +149,7 @@ class Application:
                             chat_completion = chunk.model_dump(),
                             request_id = ipc_request_id
                         )
-                    self.plugin_manager.trigger(
+                    await self.plugin_manager.trigger(
                         "on_llm_response",
                         "after",
                         chat_completion = chunk
@@ -170,7 +158,7 @@ class Application:
                 # 非流式响应
                 completion: ChatCompletion = await self.llm_client.non_stream_response(state)
                 logger.info(f"llm non_stream response start: {(time.time() * 1000) - start_ms}ms")
-                self.plugin_manager.trigger(
+                await self.plugin_manager.trigger(
                     "on_llm_response",
                     "before",
                     chat_completion = completion
@@ -181,33 +169,56 @@ class Application:
                         chat_completion = completion.model_dump(),
                             request_id = ipc_request_id
                     )
-                self.plugin_manager.trigger(
+                await self.plugin_manager.trigger(
                     "on_llm_response",
                     "after",
                     chat_completion = completion
                 )
             logger.info("llm response end")
         except Exception as ex:
-            logger.info(f"llm response exception: {ex}", exc_info=ex)
+            await self.plugin_manager.trigger(
+                "on_llm_response",
+                "before",
+                chat_completion = ex
+            )
+            if self.ipc_server.is_connected:
+                await self.ipc_server.emit(
+                    "llm_response",
+                    chat_completion = {"error": str(ex)},
+                    request_id = ipc_request_id
+                )
+            await self.plugin_manager.trigger(
+                "on_llm_response",
+                "after",
+                chat_completion = ex
+            )
     
     async def send_message(self, message: str, option: SendMessageOptions):
         logger.info(f"start handle message: {message}")
         if not isinstance(message, str):
             raise TypeError("message must be a string")
-        state = self.llm_client.create_state(option["model_name"], message, option.get("stream", True))
+        msg = UserMessage(message)
+        if option.get("type") == "tool":
+            if "tool_call_id" in option:
+                msg = ToolMessage(option["tool_call_id"], message)
+            else:
+                raise Exception("未提供工具调用ID")
+        else:
+            msg.add_image(*option.get("image_urls", []))
+        state: MessageState = self.llm_client.create_state(option["model_name"], msg, option.get("stream", True))
         
         # 触发发送消息前事件/hook
-        self.plugin_manager.trigger("on_message_before_send", "before", state=state)
+        await self.plugin_manager.trigger("on_message_before_send", "before", state=state)
         if self.ipc_server.is_connected:
             result_state = await self.ipc_server.invoke(
                 "on_message_before_send",
-                state = state.to_dict(),
+                state = state.model_dump(),
                 request_id = option.get("request_id")
             )
             new_state = result_state.get('state')
             if new_state is not None:
-                state.change_from_dict(new_state)
-        self.plugin_manager.trigger("on_message_before_send", "after", state=state)
+                state = MessageState.model_validate(new_state)
+        await self.plugin_manager.trigger("on_message_before_send", "after", state=state)
 
         # 检查是否被取消
         if state.canceled:
@@ -217,33 +228,26 @@ class Application:
         self.event_loop.create_task(self._start_response(state, option.get("request_id")))
         
         # 触发消息发送完成事件/hook
-        self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
+        await self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
         if self.ipc_server.is_connected:
             await self.ipc_server.emit(
                 "on_message_after_sended",
-                state = state.to_dict(),
+                state = state.model_dump(),
                 request_id = option.get("request_id")
             )
-        self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
-
-    def run(self):
-        try:
-            if not self.ipc_server.is_connected:
-                self.plugin_manager.trigger("on_ready", "before")
+        await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
+    
+    def ready(self):
+        if not self.ipc_server.is_connected:
+            asyncio.gather(
+                self.plugin_manager.trigger("on_ready", "before"),
                 self.plugin_manager.trigger("on_ready", "after")
-            logger.info("start event loop")
-            self.event_loop.run_forever()
-        except KeyboardInterrupt:
-            logger.info("keyboard interrupt detected, exiting...")
-            self.exit()
-            return 0
-        except Exception as e:
-            logger.error(f"running exception: {e}")
-            return 1
-        try:
-            self.plugin_manager.trigger("on_app_will_close", "before",)
-            self.plugin_manager.trigger("on_app_will_close", "after",)
-            return 0
-        except Exception as err:
-            logger.error(f"running exception: {err}")
-            return 1
+            )
+        logger.info("app ready")
+
+    def will_close(self):
+        asyncio.gather(
+            self.plugin_manager.trigger("on_app_will_close", "before"),
+            self.plugin_manager.trigger("on_app_will_close", "after")
+        )
+        logger.info("app will close")

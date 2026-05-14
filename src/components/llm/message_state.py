@@ -1,47 +1,44 @@
 from openai.types.chat import ChatCompletionMessageParam
-from typing import Any, Literal
+from typing import Any
 from .types import *
+from .message.message import Message
+from mcp.types import Tool
+from pydantic import BaseModel
 
-class MessageState:
-    def __init__(self, model_name, input: str, type: Literal["user", "tool"] = "user", messages: list[ChatCompletionMessageParam] | None = None, is_stream: bool = True):
-        self.messages = messages if messages else []
-        self.model_name = model_name
-        self.is_stream = is_stream
-        self.extra_body: dict[str, Any] = {}
-        self.canceled = False
-        self.dyn_prompt = ""
-        self.top_prompt = ""
-        self.input = input
-        self.mcp_list: list[dict] = []
-        self.skills: list[dict[str, str]] = []
-        self.type: Literal["user", "tool"] = type
-        self.resources: list[ResourceOptions] = []
-    
-    def set_mcp_list(self, mcp_list: list[dict]):
-        self.mcp_list = mcp_list
-    
-    def to_dict(self) -> dict:
-        return {
-            "messages": self.messages,
-            "model_name": self.model_name,
-            "is_stream": self.is_stream,
-            "extra_body": self.extra_body,
-            "canceled": self.canceled,
-            "dyn_prompt": self.dyn_prompt,
-            "top_prompt": self.top_prompt,
-            "input": self.input,
-            "mcp_list": self.mcp_list,
-            "skills": self.skills,
-            "type": self.type,
-            "resources": self.resources
-        }
-    
-    def change_from_dict(self, data: dict):
-        for key, value in data.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                raise ValueError(f"Invalid key: {key}")
+class MessageState(BaseModel):
+    is_stream: bool
+    canceled: bool = False
+
+    output_schema: OutputShema | None
+    model_name: str
+    message: Message
+    messages: list[ChatCompletionMessageParam]
+    extra_body: dict[str, Any]
+    dyn_prompt: str
+    top_prompt: str
+    mcp_list: list[MCPData]
+    skills: list[SkillData]
+    tools: list[Tool]
+
+
+    def __init__(self, model_name, message: Message, messages: list[ChatCompletionMessageParam] | None = None, is_stream: bool = True):
+        super().__init__(
+            is_stream=is_stream,
+            cancel=False,
+            output_schema=None,
+            model_name=model_name,
+            message=message,
+            messages=messages if messages else [],
+            extra_body={},
+            dyn_prompt="",
+            top_prompt="",
+            mcp_list=[],
+            skills=[],
+            tools=[]
+        )
+
+    def set_output_schema(self, name: str, json_schema: dict, strict: bool = True):
+        self.output_schema = OutputShema(name=name, json_schema=json_schema, strict=strict)
 
     def cancel(self):
         self.canceled = True

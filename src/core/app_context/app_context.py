@@ -15,8 +15,8 @@ logger = LogCreator.instance.create(__name__)
 class AppContext:
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
-        self.app_config = self._load_config("~/.yunnai/config.yaml")
         self.launch_args = self._parse_args(sys.argv[1:])
+        self.app_config = self._load_config(self.launch_args["config_path"] or "~/.yunnai/config.yaml")
     
     @classmethod
     def _parse_args(cls, args: list[str]) -> LaunchArgs:
@@ -32,7 +32,8 @@ class AppContext:
 
         return LaunchArgs(
             ipc_uri=temp_args.get("ipc_uri"),
-            default_llm=default_llm
+            default_llm=default_llm,
+            config_path=temp_args.get("config_path")
         )
 
     def _load_config(self, path_str: str) -> AppConfigOption:
@@ -41,7 +42,10 @@ class AppContext:
         if not path.exists():
             sys.exit(f"Config file {path} not found")
 
-        with open(path, "r", encoding="utf-8") as fs:
-            return yaml.safe_load(fs)
+        try:
+            with open(path, "r", encoding="utf-8") as fs:
+                return yaml.safe_load(fs)
+        except PermissionError:
+            sys.exit(f"No permission to read config file: '{path.absolute()}'")
 
 app_context = AppContext()

@@ -49,8 +49,8 @@ class MCPPlugin(Plugin):
     def on_message_before_send(self, state: MessageState):
         state.mcp_list = self.manager.mcp_servers
 
-    @registry.on_app_before_initialize()
-    def on_app_before_initialize(self, app: "Application"):
+    @registry.on_app_initialize()
+    def on_app_initialize(self, app: "Application"):
         self.app = app
         self.ipc = app.ipc_server
 

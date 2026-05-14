@@ -91,7 +91,7 @@ class MCPManager:
             raise ex
         session = client.get_session()
         self.mcp_infos[mcp_name]["session"] = session
-        tools = (await session.list_tools()).model_dump()["tools"]
+        tools = (await session.list_tools()).tools
         mcp_info["tools"] = tools
         return {
             "message": "OK",
