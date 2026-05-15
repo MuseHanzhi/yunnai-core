@@ -52,7 +52,11 @@ class Client:
         if dyn_prompt:
             t_dyn_prompt = dyn_prompt
 
-        return f"{top_prompt}{mcp_prompt}{skill_prompt}{t_dyn_prompt}"
+        return f"""{top_prompt}
+{t_dyn_prompt}
+{mcp_prompt}
+{skill_prompt}
+"""
 
     def _build_params(self, state: MessageState):
         params = {

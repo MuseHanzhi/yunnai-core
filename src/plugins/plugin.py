@@ -12,11 +12,12 @@ if TYPE_CHECKING:
 
 IPCTiming = Literal["before", "after"]
 class PluginInfo:
-    def __init__(self, name: str, author: str, version: str, description: str):
+    def __init__(self, name: str, author: str, version: str, description: str, type: str):
         self.name = name
         self.author = author
         self.version = version
         self.description = description
+        self.type = type
 
 class Plugin:
     info: PluginInfo
@@ -27,14 +28,6 @@ class Plugin:
     def deinit(self):
         """
         插件被移除时触发
-        """
-        ...
-    
-    def on_app_before_initialize(self, app: "Application"):
-        """
-        应用程序初始化前触发
-        
-        :param app: 主程序实例
         """
         ...
     
@@ -68,7 +61,7 @@ class Plugin:
         """
         ...
 
-    def on_ready(self):
+    def on_ready(self, app: "Application"):
         """
         程序就绪时触发
         """

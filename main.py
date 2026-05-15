@@ -34,7 +34,6 @@ def main():
     try:
         main_app = Application(event_loop)
         main_app.initialize()
-        main_app.ready()
         logger.info("start event loop")
         event_loop.run_forever()
         main_app.will_close()

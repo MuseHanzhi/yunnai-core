@@ -9,9 +9,6 @@ class HookRegistry:
             return func
         return decorator
     
-    def on_app_initialize(self, timing: IPCTiming = "before"):
-        return self.hook("on_app_initialize", timing)
-    
     def on_app_will_close(self, timing: IPCTiming = "before"):
         return self.hook("on_app_will_close", timing)
     

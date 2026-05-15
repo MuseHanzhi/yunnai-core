@@ -46,8 +46,6 @@ class SysInfo(TypedDict):
 class SystemOption(TypedDict):
     require_env: list[str]
     thread_workers: int | None
-    system_prompt_path: str | None
-    sys_info: SysInfo
     ipc: IPCOption
 
 # 插件配置
@@ -63,8 +61,13 @@ class AppConfigOption(TypedDict):
     logging: Any
     system: SystemOption
     llm: LLMConfigOption
-    plugin_config: PluginConfigOption
 
+class FixedConfigOption(TypedDict):
+    """
+    Fixed configuration for the core.
+    """
+    plugin_config: PluginConfigOption
+    system_info: SysInfo
 
 # 启动参数
 class LaunchArgs(TypedDict):

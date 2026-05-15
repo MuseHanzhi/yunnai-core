@@ -32,6 +32,11 @@ class PluginManager:
             return yaml.safe_load(f)
     
     def load_plugin(self, model_path: str, manifest: PluginManifest):
+        if "name" not in manifest:
+            raise Exception(f"插件'{manifest['name']}'的 manifest.yaml 中缺少 name 字段")
+        if "entry" not in manifest:
+            raise Exception(f"插件'{manifest['name']}'的 manifest.yaml 中缺少 entry 字段")
+
         if manifest["name"] in self.plugins:
             raise Exception(f"插件'{manifest['name']}'与已注册的插件名称冲突")
 
@@ -46,9 +51,10 @@ class PluginManager:
             plugin_instance = plugin_class()
             plugin_instance.info = PluginInfo(
                 name=manifest["name"],
-                author=manifest["author"],
-                version=manifest["version"],
-                description=manifest["description"]
+                author=manifest.get("author", "unknown"),
+                version=manifest.get("version", "1.0.0"),
+                description=manifest.get("description", ""),
+                type=manifest.get("type", "normal")
             )
         except TypeError as err:
             raise Exception(f"插件'{manifest['name']}'入口类'{entry_class}'无法实例化") from err
@@ -66,12 +72,14 @@ class PluginManager:
             else:
                 raise Exception(f"插件'{manifest['name']}'的Hook '{hook_name}'的 timing 参数错误, 仅支持 'before' 和 'after'")
             self.plugins[plugin_instance.info.name] = plugin_instance
+
     
     def initialize(self, config: PluginConfigOption):
         search_path = config["search_path"]
         plugin_root_path = os.path.join(os.getcwd(), search_path)
         model_root = search_path.strip(".").strip("/").strip("\\").replace("/", ".").replace("\\", ".")
         plugin_dirs = os.listdir(plugin_root_path)
+        plugins: list[tuple["str", PluginManifest]] = []
         for plugin_dir in plugin_dirs:
             plugin_path = os.path.join(plugin_root_path, plugin_dir)
             if not plugin_dir.endswith("_plugin") or not os.path.isdir(plugin_path):
@@ -81,11 +89,36 @@ class PluginManager:
                 continue
             try:
                 manifest = self._load_manifest(manifest_path)
-                logger.info(f"found plugin {plugin_path}")
-                self.load_plugin(model_root+"."+plugin_dir, manifest)
-                logger.debug(f"loaded plugin {plugin_path}")
+                plugins.append((model_root+"."+plugin_dir, manifest))
             except Exception as err:
                 logger.error(f"error loading plugin {plugin_path}: {err}", exc_info=err)
+        
+        system_plugins = [
+            (module_path, manifest)
+            for module_path, manifest in plugins
+            if manifest["type"] == "system"
+        ]
+        system_plugins.sort(key=lambda x: x[1].get("order", 9999))
+        for module_path, manifest in system_plugins:
+            try:
+                self.load_plugin(module_path, manifest)
+                logger.info(f"loaded plugin {module_path}")
+            except Exception as err:
+                logger.error(f"error loading plugin {module_path}: {err}", exc_info=err)
+
+        normal_plugins = [
+            (module_path, manifest)
+            for module_path, manifest in plugins
+            if manifest["type"] == "normal"
+        ]
+        normal_plugins.sort(key=lambda x: x[1].get("order", 9999))
+        for module_path, manifest in normal_plugins:
+            try:
+                self.load_plugin(module_path, manifest)
+                logger.info(f"loaded plugin {module_path}")
+            except Exception as err:
+                logger.error(f"error loading plugin {module_path}: {err}", exc_info=err)
+
     
     def enable(self, plugin: str | Plugin, state: bool):
         if plugin not in self.plugins:

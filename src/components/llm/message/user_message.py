@@ -3,10 +3,9 @@ from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMess
 from pydantic import PrivateAttr
 
 class UserMessage(Message):
-    input: str
     _resource: list[ChatCompletionContentPartParam] = PrivateAttr(default_factory=list)
-    def __init__(self, input: str, resource: list[ChatCompletionContentPartParam] = [], **kwargs):
-        super().__init__(input=input, **kwargs)
+    def __init__(self, content: str, resource: list[ChatCompletionContentPartParam] = [], **kwargs):
+        super().__init__(content=content, **kwargs)
         self._resource: list[ChatCompletionContentPartParam] = resource if resource is not None else []
 
     @property
@@ -31,7 +30,11 @@ class UserMessage(Message):
             "content": self._resource + [
                 {
                     "type": "text",
-                    "text": self.input
+                    "text": self.content
                 }
             ]
         }
+
+    def set_content(self, content: str) -> "UserMessage":
+        super().set_content(content)
+        return self

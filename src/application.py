@@ -112,20 +112,19 @@ class Application:
         logger.info("application initialize")
         
         self._setup_llm()
-
-        # 异步事件循环
-        asyncio.set_event_loop(self.event_loop)
         
         logger.info("setup plugin manager")
-        self.plugin_manager.initialize(app_context.app_config["plugin_config"])
+        self.plugin_manager.initialize(app_context.fixed_config["plugin_config"])
         logger.info("setup plugin manager ok")
 
         # 触发插件对应时机
-        asyncio.gather(
-            self.plugin_manager.trigger("on_app_initialize", "before", app=self),
-            self.plugin_manager.trigger("on_app_initialize", "after", app=self)
-        )
-        logger.info("app initialized")
+        if not self.ipc_server.is_connected:
+            asyncio.gather(
+                self.plugin_manager.trigger("on_ready", "before", app=self),
+                self.plugin_manager.trigger("on_ready", "after", app=self)
+            )
+        asyncio.set_event_loop(self.event_loop)
+        logger.info("app ready")
     
     async def _start_response(self, state: MessageState, ipc_request_id: str | None = None):
         is_start = False
@@ -236,14 +235,6 @@ class Application:
                 request_id = option.get("request_id")
             )
         await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
-    
-    def ready(self):
-        if not self.ipc_server.is_connected:
-            asyncio.gather(
-                self.plugin_manager.trigger("on_ready", "before"),
-                self.plugin_manager.trigger("on_ready", "after")
-            )
-        logger.info("app ready")
 
     def will_close(self):
         asyncio.gather(

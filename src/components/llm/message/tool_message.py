@@ -3,7 +3,6 @@ from openai.types.chat import ChatCompletionMessageParam
 
 class ToolMessage(Message):
     id: str
-    content: str
     def __init__(self, id: str, content: str) -> None:
         super().__init__(
             id = id,
@@ -16,5 +15,9 @@ class ToolMessage(Message):
             "tool_call_id": self.id,
             "content": self.content
         }
+    
+    def set_content(self, content: str) -> "ToolMessage":
+        super().set_content(content)
+        return self
 
     

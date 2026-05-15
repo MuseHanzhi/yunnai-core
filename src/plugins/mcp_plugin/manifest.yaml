@@ -3,3 +3,5 @@ author: "慕色寒枝"
 version: "1.0.0"
 description: "添加MCP支持"
 entry: "plugin.MCPPlugin"
+type: "system"
+order: 0

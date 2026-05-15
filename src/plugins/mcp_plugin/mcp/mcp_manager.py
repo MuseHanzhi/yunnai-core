@@ -35,8 +35,8 @@ class MCPManager:
         logger.info(f"新增MCP: {name}")
 
     def load(self, servers: dict[str, Union[MCPStreamableHTTPOption, MCPStdioOption]]):
-        for mcp_name in servers if servers else []:
-            if servers is None or not servers[mcp_name].get("enable"):
+        for mcp_name in servers or []:
+            if not servers[mcp_name].get("enable"):
                 continue
             mcp_server = servers[mcp_name]
             self.mcp_infos[mcp_name] = {

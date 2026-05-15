@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, Literal
 from src.plugins.plugin import IPCTiming
 
 class PluginManifest(TypedDict):
@@ -7,3 +7,5 @@ class PluginManifest(TypedDict):
     author: str
     version: str
     entry: str
+    type: Literal["system", "normal"]
+    order: int

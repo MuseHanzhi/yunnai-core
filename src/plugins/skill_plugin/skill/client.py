@@ -33,11 +33,11 @@ class Client:
         for dir, skill_file in skill_dirs:
             try:
                 skill_metadata = Client.parse_skill_metadata(skill_file)
-                skills[dir.name] = {
+                skills[skill_metadata.get('name') or dir.name] = {
                     "metadata": skill_metadata,
                     "path": str(dir.absolute())
                 }
-                logger.info(f"found skill: {dir.name}")
+                logger.info(f"found skill: {skill_metadata.get('name') or dir.name}")
             except SkillMetadataParseError as e:
                 logger.warning(f"Skill metadata parse error: {e}")
                 continue
@@ -82,4 +82,15 @@ class Client:
             skill_content = f.read()
         content = REGEX.sub("", skill_content)
         return content
-    
+
+    def script_runner(self, skill_name: str, script: str, *args: str):
+        skill = self.skills.get(skill_name)
+        if skill is None:
+            raise SkillNotFoundError(skill_name)
+        script_path = pathlib.Path(skill["path"], "scripts", script)
+        if not script_path.exists():
+            script_path = pathlib.Path(skill["path"], script)
+            if not script_path.exists():
+                raise SkillScriptNotFoundError(f"{skill_name} not found script: {script}")
+        
+        cmd_components = []

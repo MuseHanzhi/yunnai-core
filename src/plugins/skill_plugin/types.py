@@ -5,4 +5,5 @@ from typing import (
 )
 
 class SkillConfig(TypedDict):
-    skill_path: str
+    py_executable: str
+    js_executable: str

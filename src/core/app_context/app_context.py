@@ -1,22 +1,33 @@
 import pathlib
 import asyncio
 import sys
+import os
 
 import yaml
 
 from src.core.logger.logger import LogCreator
+
+from typing import TypeVar
 from .types import (
     AppConfigOption,
-    LaunchArgs
+    LaunchArgs,
+    FixedConfigOption
 )
 
-
+T = TypeVar("T")
 logger = LogCreator.instance.create(__name__)
 class AppContext:
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         self.launch_args = self._parse_args(sys.argv[1:])
-        self.app_config = self._load_config(self.launch_args["config_path"] or "~/.yunnai/config.yaml")
+        self.fixed_config: FixedConfigOption = self._load_config("./fixed_config.yaml")
+        self.data_home = self._get_data_home()
+        self.app_config: AppConfigOption = self._load_config(self.launch_args["config_path"] or os.path.join(self.data_home, "config.yaml"))
+    
+    def _get_data_home(self) -> str:
+        path = pathlib.Path("~", f".{self.fixed_config["system_info"]["name"]}").expanduser().absolute()
+        path.mkdir(exist_ok=True)
+        return str(path)
     
     @classmethod
     def _parse_args(cls, args: list[str]) -> LaunchArgs:
@@ -36,7 +47,7 @@ class AppContext:
             config_path=temp_args.get("config_path")
         )
 
-    def _load_config(self, path_str: str) -> AppConfigOption:
+    def _load_config(self, path_str: str) -> T:
         path = pathlib.Path(path_str).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():

@@ -6,3 +6,7 @@ class SkillMetadataParseError(Exception):
 class SkillNotFoundError(Exception):
     def __init__(self, message: str):
         super().__init__(message)
+
+class SkillScriptNotFoundError(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)

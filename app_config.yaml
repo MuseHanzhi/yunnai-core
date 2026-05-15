@@ -18,13 +18,10 @@ logging:    # 日志
             - 
                 <<: *file_handler
 system:     # 系统配置
-    sys_info:
-        name: "yunnai-core"
-        version: "1.0.0"
     require_env:
         - "DASHSCOPE_API_KEY"
-        - "KIMI_API_KEY"
-        - "DOUAO_API_KEY"
+        # - "KIMI_API_KEY"
+        # - "DOUAO_API_KEY"
     ipc:
         enable: false
         uri: "ws://192.168.1.105:8866"
@@ -33,7 +30,6 @@ system:     # 系统配置
             retry_interval: 5
             max_retry: 3
     thread_workers: null
-    llm_stream: true
 llm:        # 大模型
     default: "qwen"
     models: 
@@ -66,6 +62,3 @@ llm:        # 大模型
             extra_body:
                 thinking: 
                     type: disabled
-plugin_config:  # 插件配置
-    search_path: "src/plugins"
-

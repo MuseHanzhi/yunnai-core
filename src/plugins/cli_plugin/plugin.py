@@ -18,15 +18,7 @@ class CliPlugin(Plugin):
         super().__init__()
         self.llm_done_signal = asyncio.Event()
         self.replying = False
-        self.all_text = ""
-        self.current_mcp_name = ""
-        self.mcp_tools = []
-    
-    @registry.on_app_initialize()
-    def on_app_initialize(self, app: "Application"):
-        self.app = app
-        self.event_loop = app.event_loop
-        self.running = True
+        
 
     async def run(self):
         # 初始化时确保信号是关闭的
@@ -63,64 +55,23 @@ class CliPlugin(Plugin):
                 self.replying = False
 
     @registry.on_ready()
-    def on_ready(self):
+    def on_ready(self, app: "Application"):
+        self.app = app
+        self.event_loop = app.event_loop
+        self.running = True
         self.event_loop.create_task(self.run())
     
     @registry.on_message_before_send()
     def on_message_before_send(self, state: MessageState):
-        state.tools = self.mcp_tools
-        state.is_stream = False
-        state.set_output_schema("reply", {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string",
-                    "description": "对用户的自然语言回复。"
-                },
-                "activate": {
-                    "type": ["object", "null"],
-                    "description": "如果需要激活 MCP 或 Skill，则填写此对象，否则为 null。",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "enum": ["mcp", "skill"],
-                            "description": "激活类型：mcp 或 skill"
-                        },
-                        "name": {
-                            "type": "string",
-                            "description": "MCP Server 名称或 Skill 名称"
-                        }
-                    },
-                    "required": ["type", "name"] # 强制要求这三个字段
-                }
-            },
-            "required": ["content", "activate"]
-        })
+        # 检查是否有可用工具
+        # state.is_stream = False   
         state.top_prompt = """
-你是一个智能助手。你的唯一任务是输出一个严格的 JSON 对象。
+你叫云乃，是一个智能助手
 
-# 绝对约束
-1. **严禁**输出任何 Markdown 格式（如 ```json）。
-2. **严禁**输出 Schema 中未定义的字段。
-3. **严禁**遗漏 Schema 中要求的必填字段。
-4. 如果 **activate** 不为 null，它**必须**包含 **type**, **name** 两个字段。
-5. **type** 字段**必须**是 "mcp" 或 "skill" 之一。
+# 绝对指令
+1. **不要**输出任何Markdown格式，使用纯文本输出
 
-# 输出格式示例
-{
-  "content": "好的，正在为您激活...",
-  "activate": {
-    "type": "mcp",
-    "name": "mcd-mcp"
-  }
-}
-
-# 任务
-分析用户输入，决定是否需要激活工具。
-- 如果需要，填充 **activate** 对象。
-- 如果不需要，**activate** 设为 null。
-- 在 **content** 中回复用户。
-"""
+"""     
     
     @registry.on_llm_response()
     async def on_llm_response(self, chat_completion: ChatCompletionChunk | ChatCompletion | Exception):
@@ -132,34 +83,35 @@ class CliPlugin(Plugin):
         if not self.replying:
             print("思考中...")
             self.replying = True
+        
         if len(chat_completion.choices) == 0:
+            if chat_completion.usage:
+                if chat_completion.usage is not None:
+                    print(f"Token Usage:")
+                    print(f"    Prompt Token: {chat_completion.usage.prompt_tokens}")
+                    print(f"    Completion Token: {chat_completion.usage.completion_tokens}")
+                    print(f"    Total Token: {chat_completion.usage.total_tokens}")
             return
+        
+        # 处理流式响应
         if isinstance(chat_completion, ChatCompletionChunk):
-            if chat_completion.choices[0].delta.content:
-                # print(chat_completion.choices[0].delta.content, end="")
-                self.all_text += chat_completion.choices[0].delta.content
+            delta = chat_completion.choices[0].delta
+            # 打印文本内容
+            if delta.content:
+                print(delta.content, end="", flush=True)
+        
+        # 处理完整响应
         else:
-            if chat_completion.choices[0].message.content:
-                # print(chat_completion.choices[0].message.content, end="")
-                self.all_text += chat_completion.choices[0].message.content
-        if chat_completion.choices[0].finish_reason == "stop":
-            output = json.loads(self.all_text)
-            print(output["content"])
-            if output["activate"]:
-                print(f"[LLM] Activating {output['activate']['type']} {output['activate']['name']}")
-
-                mcp_plugin: Plugin | None = self.app.plugin_manager.get_plugin("mcp_plugin")
-                if mcp_plugin is not None and isinstance(mcp_plugin, MCPPlugin):
-                    get_tools_result = await mcp_plugin.manager.activate(output["activate"]["name"])
-                    self.mcp_tools = get_tools_result["tools"]
-                    print(f"[MCP] {output['activate']['name']} find {len(self.mcp_tools)} tools")
-            self.all_text = ""
-            self.llm_done_signal.set()  # 输出完毕信号
+            message = chat_completion.choices[0].message
+            # 普通文本回复或 JSON 响应（激活 MCP 模式）
+            print(message.content)
+        
+        # 响应完成
+        if chat_completion.choices[0].finish_reason:
+            print("\n[LLM] Done")
+            self.llm_done_signal.set()
             self.replying = False
-            print("[LLM] Done")
             print()
-        if chat_completion.usage is not None:
-            print(f"Tokens: {chat_completion.usage.total_tokens}")
         
     
     @registry.on_app_will_close()
