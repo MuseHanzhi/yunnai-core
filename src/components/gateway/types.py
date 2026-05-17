@@ -1,6 +1,8 @@
+import pydantic
 from pydantic import BaseModel
 from typing import Any, TypedDict
 import asyncio
+
 
 class App(BaseModel):
     appid: str
@@ -11,7 +13,7 @@ class GatewayConfig(BaseModel):
     port: int
     token: str
     max_count: int
-    apps: list[App]
+    apps: list[App] = pydantic.Field(default_factory=lambda: [])
 
 class TokenInfo(BaseModel):
     appid: str

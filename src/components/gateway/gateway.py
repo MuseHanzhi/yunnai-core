@@ -30,6 +30,12 @@ class Gateway:
         self.on_connect: Callable[[str], None | Coroutine[Any, Any, None]] | None = None
         self.on_disconnect: Callable[[str], None | Coroutine[Any, Any, None]] | None = None
     
+        self.on_ready: Callable[[], None | Coroutine] | None = None
+
+    @property
+    def has_connection(self):
+        return bool(self.connections)
+    
     async def send(self, message: str | bytes, appid: str | None = None):
         if appid is None:
             for appid in self.connections:
@@ -45,7 +51,7 @@ class Gateway:
             del self.connections[appid]
             raise Exception("Client disconnected") from e
     
-    async def _receive_message(self, message: str | bytes, websocket: WebSocketUnit, appid: str):
+    async def _handle_message(self, message: str | bytes, websocket: WebSocketUnit, appid: str):
         base_protocal: BaseProtocal
         data_dict: dict
         try:
@@ -126,11 +132,11 @@ class Gateway:
 
     
     def _parse_token(self, token: str) -> TokenInfo | None:
-        token_str = base64.b64decode(token).decode().split(",")
         try:
+            token_str = base64.b64decode(token).decode().split(",")
             return TokenInfo.model_validate({
-                "appid": token_str[0],
-                "token": token_str[1]
+                "token": token_str[0],
+                "appid": token_str[1]
             })
         except:
             return None
@@ -144,41 +150,41 @@ class Gateway:
     async def _on_ws_connect(self, websocket_unit: WebSocketUnit):
         if len(self.connections) >= self.config.max_count:
             logger.warning(f"too many connections")
-            await websocket_unit.close(429, "TooManyConnections")
+            await websocket_unit.close(4029, "TooManyConnections")
             return
 
-        logger.info(f"{websocket_unit.query} connected")
         token: str | None = websocket_unit.query.get("token", [None])[0]
         if token is None:
             temp_token = websocket_unit.headers.get("Authorization")
             if temp_token:
                 splited = temp_token.split(" ")
                 if len(splited) != 2:
-                    await websocket_unit.close(401, "NoToken")
+                    await websocket_unit.close(4001, "Unauthorized")
                     return 
                 method, t_token = splited
                 if method != "Basic":
-                    await websocket_unit.close(401, "NoToken")
+                    await websocket_unit.close(4001, "Unauthorized")
                     return 
                 token = t_token
-            logger.warning(f"NoToken")
-            await websocket_unit.close(401, "NoToken")
-            return 
+            else:
+                logger.warning(f"NoToken")
+                await websocket_unit.close(4001, "Unauthorized")
+                return 
 
         token_info = self._parse_token(token)
         if token_info is None:
             logger.warning(f"Invalid token")
-            await websocket_unit.close(401, "InvalidToken")
+            await websocket_unit.close(4001, "Unauthorized")
             return
         if token_info.token != self.config.token:
             logger.warning(f"Invalid token")
-            await websocket_unit.close(401, "InvalidToken")
+            await websocket_unit.close(4001, "Unauthorized")
             return
         
         app = self._find_client(token_info.appid)
         if app is None:
             logger.warning(f"Appid '{token_info.appid}' is no exist")
-            await websocket_unit.close(401, "NoApp")
+            await websocket_unit.close(4001, "Unauthorized")
             return
 
         self.connections[app.appid] = websocket_unit
@@ -186,29 +192,39 @@ class Gateway:
             res = self.on_connect(app.appid)
             if asyncio.iscoroutine(res):
                 await res
-
-        # 接收消息
-        async def receive_message():
-            # 内部接收消息函数，调用类接收消息函数
-            async def inner_receive_message(message: str | bytes):
-                try:
-                    logger.debug(f"received message, length: {len(message)}")
-                    await self._receive_message(message, websocket_unit, token_info.appid)
-                except Exception as e:
-                    logger.error("receive_message error", exc_info=e)
-
+        
+        # 等待接收消息任务完成，保持连接活跃
+        await self._receive_message(websocket_unit, token_info)
+    
+    async def _receive_message(self, websocket_unit: WebSocketUnit, token_info: TokenInfo):
+        async def inner_receive_message(message: str | bytes):
             try:
-                await websocket_unit(inner_receive_message)
-            except websockets.ConnectionClosed | websockets.ConnectionClosedOK as e:
-                del self.connections[token_info.appid]
-                if self.on_disconnect:
-                    res = self.on_disconnect(token_info.appid)
-                    if asyncio.iscoroutine(res):
-                        await res
-        self.event_loop.create_task(receive_message())
+                logger.debug(f"received message, length: {len(message)}")
+                await self._handle_message(message, websocket_unit, token_info.appid)
+            except Exception as e:
+                logger.error("receive_message error", exc_info=e)
+
+        try:
+            await websocket_unit(inner_receive_message)
+        except websockets.ConnectionClosed | websockets.ConnectionClosedOK as e:
+            del self.connections[token_info.appid]
+            if self.on_disconnect:
+                address = "unknow"
+                if len(websocket_unit.ws.remote_address) > 0:
+                    address = websocket_unit.ws.remote_address[0]
+                logger.info(f"{address} disconnected")
+                res = self.on_disconnect(token_info.appid)
+                if asyncio.iscoroutine(res):
+                    await res
+    
+    def _gateway_ready(self):
+        logger.info(f"server start host: {self.config.host}, port: {self.config.port}")
+        if self.on_ready:
+            self.on_ready()
 
     async def open(self):
         self.ws_server.on_connect = self._on_ws_connect
+        self.ws_server.on_ready = self._gateway_ready
         await self.ws_server.start()
 
     async def close(self):

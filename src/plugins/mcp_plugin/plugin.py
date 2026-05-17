@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = LogCreator.instance.create(__name__)
 class MCPPlugin(Plugin):
     app: "Application"
-    ipc: IPCServer
+    # ipc: IPCServer
     handler: Handler
     def __init__(self):
         super().__init__()
@@ -68,7 +68,7 @@ class MCPPlugin(Plugin):
     @registry.on_ready()
     async def on_ready(self, app: "Application"):
         self.app = app
-        self.ipc = app.ipc_server
+        # self.ipc = app.ipc_server
 
         config_path = pathlib.Path(app_context.data_home) / "mcp_config.toml"
         try:
@@ -76,7 +76,7 @@ class MCPPlugin(Plugin):
             self.manager.load(config)
             await self.manager.activate("WebSearch")
             self.activated_mcp_servers = ["WebSearch"]
-            self.handler.init(self.ipc)
+            # self.handler.init(self.ipc)
             logger.info("mcp 处理方法初始化成功")
         except Exception as e:
             logger.error(f"加载MCP配置失败: {e}")

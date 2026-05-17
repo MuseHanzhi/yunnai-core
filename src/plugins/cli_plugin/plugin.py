@@ -16,6 +16,7 @@ class CliPlugin(Plugin):
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         super().__init__()
+        self.enable = False
         self.llm_done_signal = asyncio.Event()
         self.replying = False
         

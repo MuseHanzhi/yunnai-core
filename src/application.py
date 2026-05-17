@@ -12,10 +12,9 @@ from openai.types.chat import (
 from src.components.llm.client import Client as LLMClient, MessageState
 from src.components.plugin_manager.plugin_manager import PluginManager
 from src.core.logger.logger import LogCreator
-from src.components.ipc.ipc import IPCServer
-from src.ipc_handlers.ipc_handler import IPCHandler
 from src.components.llm.message.tool_message import ToolMessage
 from src.components.llm.message.user_message import UserMessage
+from src.components.gateway.gateway_client import GatewayClient
 
 from src.types.send_message_options import SendMessageOptions
 from src.core import app_context
@@ -33,45 +32,21 @@ class Application:
         # 组件
         self.plugin_manager = PluginManager()
         self.llm_client: LLMClient = LLMClient()
-        self.ipc_server: IPCServer = self._setup_ipc()
+        self.gateway_client = GatewayClient(self.event_loop)
         
         # 全局变量
         self.completed_text = ""
-    
-    def on_ipc_ready(self):
-        self.event_loop.create_task(self.plugin_manager.trigger("on_ready", "before"))
-        self.event_loop.create_task(self.plugin_manager.trigger("on_ready", "after"))
-        
-        
-        if self.ipc_server.is_connected:
-            logger.info(f"connect ipc -> {self.ipc_server.ipc_uri}")
-            handler = IPCHandler(self, self.ipc_server)
-            handler.init()
 
     def on_ipc_error(self, error: Exception):
         logger.error(f"IPC服务启动异常: {error}", exc_info=error)
         sys.exit(1)
     
-    def _setup_ipc(self) -> IPCServer :
-        launch_ipc_uri = app_context.launch_args.get("ipc_uri")
-        ipc_config = app_context.app_config["system"].get("ipc")
-            
-        uri = launch_ipc_uri if launch_ipc_uri else ipc_config.get("uri")
-        if not uri:
-            return IPCServer(uri, self.event_loop)
-        
-        ipc_server = IPCServer(uri, self.event_loop)
-        ipc_server.on_ipc_ready = self.on_ipc_ready
-        ipc_server.on_ipc_error = self.on_ipc_error
-
-        if launch_ipc_uri is None and not ipc_config.get("enable", False):
-            return ipc_server
-        self.event_loop.create_task(ipc_server.start())     # 需要等run_forever启动后才能工作
-        return ipc_server
-    
     def exit(self):
-        if self.ipc_server.is_connected:
-            self.event_loop.run_until_complete(self.ipc_server.emit("on_app_will_close"))
+        try:
+            self.event_loop.run_until_complete(self.gateway_client.emit("on_app_will_close"))
+            self.event_loop.run_until_complete(self.gateway_client.end())
+        except:
+            ...
         self.event_loop.stop()
         logger.info("event loop stop")
     
@@ -112,21 +87,29 @@ class Application:
         logger.info("application initialize")
         
         self._setup_llm()
+
+        async def start_gateway():
+            try:
+                self.gateway_client.on_ready = lambda: logger.info("gateway component started")
+                await self.gateway_client.start()
+            except Exception as ex:
+                logger.error("start gateway component error", exc_info=ex)
+
+        self.event_loop.create_task(start_gateway())
         
         logger.info("setup plugin manager")
         self.plugin_manager.initialize(app_context.fixed_config["plugin_config"])
         logger.info("setup plugin manager ok")
 
         # 触发插件对应时机
-        if not self.ipc_server.is_connected:
-            asyncio.gather(
+        asyncio.gather(
                 self.plugin_manager.trigger("on_ready", "before", app=self),
                 self.plugin_manager.trigger("on_ready", "after", app=self)
             )
         asyncio.set_event_loop(self.event_loop)
         logger.info("app ready")
     
-    async def _start_response(self, state: MessageState, ipc_request_id: str | None = None):
+    async def _start_response(self, state: MessageState, gateway_additional: dict | None = None):
         is_start = False
         start_ms = time.time() * 1000
         try:
@@ -142,12 +125,11 @@ class Application:
                         "before",
                         chat_completion = chunk
                     )
-                    if self.ipc_server.is_connected:
-                        await self.ipc_server.emit(
-                            "llm_response",
-                            chat_completion = chunk.model_dump(),
-                            request_id = ipc_request_id
-                        )
+                    await self.gateway_client.emit("llm_response", {
+                        "is_stream": True,
+                        "chunk": chunk.model_dump(),
+                        "additional": gateway_additional
+                    })
                     await self.plugin_manager.trigger(
                         "on_llm_response",
                         "after",
@@ -162,12 +144,13 @@ class Application:
                     "before",
                     chat_completion = completion
                 )
-                if self.ipc_server.is_connected:
-                    await self.ipc_server.emit(
-                        "llm_response",
-                        chat_completion = completion.model_dump(),
-                            request_id = ipc_request_id
-                    )
+
+                await self.gateway_client.emit("llm_response", {
+                        "is_stream": False,
+                        "chat_completion": completion.model_dump(),
+                        "additional": gateway_additional
+                    })
+                
                 await self.plugin_manager.trigger(
                     "on_llm_response",
                     "after",
@@ -180,12 +163,12 @@ class Application:
                 "before",
                 chat_completion = ex
             )
-            if self.ipc_server.is_connected:
-                await self.ipc_server.emit(
-                    "llm_response",
-                    chat_completion = {"error": str(ex)},
-                    request_id = ipc_request_id
-                )
+            await self.gateway_client.emit("llm_response", {
+                    "is_stream": False,
+                    "error": str(ex),
+                    "additional": gateway_additional
+                })
+            
             await self.plugin_manager.trigger(
                 "on_llm_response",
                 "after",
@@ -208,15 +191,12 @@ class Application:
         
         # 触发发送消息前事件/hook
         await self.plugin_manager.trigger("on_message_before_send", "before", state=state)
-        if self.ipc_server.is_connected:
-            result_state = await self.ipc_server.invoke(
-                "on_message_before_send",
-                state = state.model_dump(),
-                request_id = option.get("request_id")
-            )
-            new_state = result_state.get('state')
-            if new_state is not None:
-                state = MessageState.model_validate(new_state)
+        state_dict: dict | None = await self.gateway_client.invoke("on_message_before_send", {
+            "state": state.model_dump(),
+            "additional": option.get("additional")
+        })
+        if state_dict is not None:
+            state = MessageState.model_validate(state_dict)
         await self.plugin_manager.trigger("on_message_before_send", "after", state=state)
 
         # 检查是否被取消
@@ -224,16 +204,13 @@ class Application:
             return
         
         # 开始响应任务
-        self.event_loop.create_task(self._start_response(state, option.get("request_id")))
+        self.event_loop.create_task(self._start_response(state, option.get("additional")))
         
         # 触发消息发送完成事件/hook
         await self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
-        if self.ipc_server.is_connected:
-            await self.ipc_server.emit(
-                "on_message_after_sended",
-                state = state.model_dump(),
-                request_id = option.get("request_id")
-            )
+        await self.gateway_client.emit("on_message_after_sended", {
+            "state": state.model_dump()
+        })
         await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
 
     def will_close(self):

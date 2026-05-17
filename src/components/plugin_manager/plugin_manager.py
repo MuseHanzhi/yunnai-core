@@ -175,7 +175,7 @@ class PluginManager:
             raise Exception(f"Hook '{hook_name}' 的 timing 参数错误, 仅支持 'before' 和 'after'")
 
         for hook in hooks:
-            if not hook.enable:
+            if not hook.plugin.enable:
                 continue
             try:
                 await hook.run(*args, **arguments)

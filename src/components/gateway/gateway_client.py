@@ -26,12 +26,15 @@ class GatewayClient(BaseGatewayClient):
         self.gateway = Gateway(self, self.config, event_loop)
         self.event_loop = event_loop or asyncio.get_event_loop()
         
-        
         # appid.request_id -> InvokeRequestSession
         self.request_sessions: dict[str, dict[str, InvokeRequestSession]] = {}
 
-        self.event_handlers: dict[str, Callable[[Any, str], Coroutine[Any, Any, None] | None]] = {}
+        self.event_handlers: dict[str, list[Callable[[Any, str], Coroutine[Any, Any, None] | None]]] = {}
         self.invoke_handlers: dict[str, Callable[[Any, str], Coroutine[Any, Any, None] | None]] = {}
+
+        self.on_ready: Callable[[], None | Coroutine] | None = None
+        self.on_connect: Callable[[str], None | Coroutine] | None = None
+        self.on_disconnect: Callable[[str], None | Coroutine] | None = None
     
     def _load_config(self, data_home: str) -> GatewayConfig:
         path = pathlib.Path(data_home) / "gateway.toml"
@@ -39,17 +42,23 @@ class GatewayClient(BaseGatewayClient):
             # 创建默认配置文件
             config = GatewayConfig.model_validate({
                 "host": "127.0.0.1",
-                "port": 8080,
-                "token": "abc",
+                "port": 8866,
+                "token": "token_abc",
                 "max_count": 5,
                 "apps": []
             })
-            path.write_text(config.model_dump_json(), encoding="utf-8")
+            path.write_text("""host="127.0.0.1"
+port=8866
+token="token_abc"
+max_count=5
+""", encoding="utf-8")
             logger.info(f"created gateway.toml")
             return config
         
         try:
-            return GatewayConfig.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
+            config_text = path.read_text(encoding="utf-8")
+            config_dict = tomllib.loads(config_text)
+            return GatewayConfig.model_validate(config_dict)
         except Exception as e:
             logger.error(f"An error occurred while reading the configuration file. Please check the 'gateway.toml' configuration file", exc_info=e)
             raise e
@@ -59,14 +68,15 @@ class GatewayClient(BaseGatewayClient):
     
     async def event_request(self, appid: str, event: Event):
         logger.debug(f"appid: '{appid}'. event: {event.name}. request_id: {event.id}")
-        handler = self.event_handlers.get(event.name)
-        if not handler:
+        handlers = self.event_handlers.get(event.name)
+        if not handlers:
             logger.warning(f"event: {event.name}. no handler")
             return
         try:
-            res = handler(event.arguments, appid)
-            if asyncio.iscoroutine(res):
-                await res
+            for handler in handlers:
+                res = handler(event.arguments, appid)
+                if asyncio.iscoroutine(res):
+                    await res
         except Exception as e:
             logger.error(f"event: {event.name}. error: {e}", exc_info=e)
     
@@ -104,7 +114,10 @@ class GatewayClient(BaseGatewayClient):
         else:
             logger.warning(f"appid: {appid}, invoke: {response.id}. no session")
     
-    async def invoke(self, name: str, args: dict[str, Any] | None = None, appid: str | None = None, timeout: int = 10000):
+    async def invoke(self, name: str, args: dict[str, Any] | None = None, appid: str | None = None, timeout: int = 10000) -> Any:
+        if not self.gateway.has_connection:
+            logger.warning("no connection. skip invoke request")
+            return None
         request_id = str(uuid.uuid4())
         while request_id in self.request_sessions:
             request_id = str(uuid.uuid4())
@@ -141,17 +154,16 @@ class GatewayClient(BaseGatewayClient):
         except Exception as e:
             logger.error(f"emit: {name}. error: {e}", exc_info=e)
 
-    def on_event(self, name: str):
-        def decorator(func: Callable[[Any, str], Coroutine[Any, Any, None] | None]):
-            self.event_handlers[name] = func
-            return func
-        return decorator
+    def register_event(self, event_name: str, event_func: Callable[[str, Any], None | Coroutine[Any, Any, None]]):
+        self.event_handlers.setdefault(event_name, []).append(event_func)
     
-    def on_invoke(self, name: str):
-        def decorator(func: Callable[[Any, str], Coroutine[Any, Any, None] | None]):
-            self.invoke_handlers[name] = func
-            return func
-        return decorator
+    def remove_event(self, event_name: str, event_func: Callable[[str, Any], None | Coroutine[Any, Any, None]]):
+        self.event_handlers.setdefault(event_name, []).remove(event_func)
+    
+    def register_handler(self, handler_name: str, handler: Callable[[str, Any], Any | Coroutine[Any, Any, Any]]):
+        if handler_name in self.invoke_handlers:
+            logger.warning(f"The handler with the same name '{handler_name}' has already been covered")
+        self.invoke_handlers[handler_name] = handler
     
     def _create_sesion(self, request_id: str, appid: str | None = None):
         session: InvokeRequestSession = {
@@ -165,7 +177,14 @@ class GatewayClient(BaseGatewayClient):
         self.request_sessions.setdefault(appid, {})[request_id] = session
         return session
 
+    async def _on_connect(self, appid: str):
+        await self.emit("hello", {}, appid)
+        # self.on_connect
+
     async def start(self):
+        self.gateway.on_connect = self._on_connect
+        self.gateway.on_disconnect = self.on_disconnect
+        self.gateway.on_ready = self.on_ready
         await self.gateway.open()
     
     async def end(self):

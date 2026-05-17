@@ -10,7 +10,7 @@ class WebSocketUnit:
             async for message in self.ws:
                 await func(message)
         except websockets.ConnectionClosed | websockets.ConnectionClosedError | websockets.ConnectionClosedOK:
-            raise
+            pass
     
     async def close(self, code: int = 1000, reason: str = ""):
         try:

@@ -11,7 +11,6 @@ class HookMetadata:
         self.hook_func = hook_func
         self.hook_name: Hooks = hook_name
         self.plugin = plugin
-        self.enable = True
     async def run(self, *args, **arguments):
         call = self.hook_func(self.plugin, *args, **arguments)
         if asyncio.iscoroutine(call):
