@@ -13,3 +13,4 @@ class MessageOptions(TypedDict):
     request_id: str | None
     model_name: str
     stream: NotRequired[bool]
+    additional: NotRequired[dict]

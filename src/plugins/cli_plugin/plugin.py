@@ -16,7 +16,6 @@ class CliPlugin(Plugin):
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         super().__init__()
-        self.enable = False
         self.llm_done_signal = asyncio.Event()
         self.replying = False
         
@@ -28,7 +27,7 @@ class CliPlugin(Plugin):
         while self.running:
             try:
                 # 1. 等待用户输入
-                user_input = input("> ")
+                user_input = await asyncio.to_thread(input, "> ")
                 
                 # 2. 【关键优化】在发起新请求前，再次确保信号是关闭的
                 # 这样可以防止上一轮极快的响应“污染”这一轮的等待
@@ -62,6 +61,11 @@ class CliPlugin(Plugin):
         self.running = True
         self.event_loop.create_task(self.run())
     
+    @registry.on_canceled()
+    def on_canceled(self, state: MessageState):
+        self.llm_done_signal.set()
+        print("[CliPlugin]: 取消发送")
+
     @registry.on_message_before_send()
     def on_message_before_send(self, state: MessageState):
         # 检查是否有可用工具

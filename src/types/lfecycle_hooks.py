@@ -1,6 +1,7 @@
 from typing import Literal
 
 Hooks = Literal[
+    "on_canceled",
     "on_llm_response",
     "on_app_will_close",
     "on_message_before_send",

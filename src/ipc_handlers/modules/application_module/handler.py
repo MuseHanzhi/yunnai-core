@@ -6,7 +6,7 @@ from typing import (
 )
 from .types import *
 from src.ipc_handlers.types import IPCInvokeResult
-from src.components.ipc.ipc import IPCServer
+from src.components.gateway.gateway_client import GatewayClient
 from src.core.logger.logger import LogCreator
 
 if TYPE_CHECKING:
@@ -15,35 +15,26 @@ if TYPE_CHECKING:
 logger = LogCreator.instance.create(__name__)
 
 class Handler:
-    def __init__(self, app: "Application", ipc: IPCServer):
+    def __init__(self, app: "Application", ipc: GatewayClient):
         self.app = app
         self.ipc = ipc
         self.event_loop: asyncio.AbstractEventLoop = app.event_loop
         self.init()
     
     def init(self):
-        self.ipc.on('send_message', self.send_message)
-        self.ipc.on('close_app', self.close_app)
-        self.ipc.on("ready", self.ready)
+        self.ipc.register_event('send_message', self.send_message)
+        self.ipc.register_event('close_app', self.close_app)
     
-    def ready(self, params: dict):
-        ...
-        # mcp_list: dict[str, MCPStdioOption | MCPStreamableHTTPOption] | None = params.get("mcp_list", None)
-        # client_info: SysInfo | None = params.get("client_info", None)
-
-        # if mcp_list is None or client_info is None:
-        #     logger.warning("[MCP] No mcp_list or client_info provided")
-        #     return
-        
-        # self.app.mcp_manager.load(mcp_list, client_info)
-    
-    def close_app(self, params: dict):
+    def close_app(self, params: dict, appid: str):
         self.app.exit()
     
-    def send_message(self, params: Any):
+    def send_message(self, params: Any, appid: str):
         message: MessageOptions = params
         self.event_loop.create_task(self.app.send_message(message['message'], {
-            "request_id": message.get("request_id", ""),
             "model_name": message["model_name"],
-            "stream": message.get("stream", True)
+            "stream": message.get("stream", True),
+            "additional": {
+                **message.get("additional", {}),
+                "appid": appid
+            }
         }))

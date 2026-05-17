@@ -1,7 +1,8 @@
 from typing import (
     TypedDict,
     NotRequired,
-    Literal
+    Literal,
+    Any
 )
 
 class SendMessageOptions(TypedDict):
@@ -10,4 +11,4 @@ class SendMessageOptions(TypedDict):
     tool_call_id: NotRequired[str]
     stream: NotRequired[bool]
     image_urls: NotRequired[list[str]]
-    additional: NotRequired[dict[str, str]]
+    additional: NotRequired[dict[str, Any]]

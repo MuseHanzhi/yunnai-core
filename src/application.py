@@ -15,6 +15,8 @@ from src.core.logger.logger import LogCreator
 from src.components.llm.message.tool_message import ToolMessage
 from src.components.llm.message.user_message import UserMessage
 from src.components.gateway.gateway_client import GatewayClient
+from src.ipc_handlers.ipc_handler import IPCHandler
+from src.components.gateway.exceptions import InvokeSessionTimeoutError
 
 from src.types.send_message_options import SendMessageOptions
 from src.core import app_context
@@ -33,6 +35,8 @@ class Application:
         self.plugin_manager = PluginManager()
         self.llm_client: LLMClient = LLMClient()
         self.gateway_client = GatewayClient(self.event_loop)
+        
+        self.ipc_handler: IPCHandler = IPCHandler(self, self.gateway_client)
         
         # 全局变量
         self.completed_text = ""
@@ -88,6 +92,8 @@ class Application:
         
         self._setup_llm()
 
+        self.ipc_handler.init()
+
         async def start_gateway():
             try:
                 self.gateway_client.on_ready = lambda: logger.info("gateway component started")
@@ -125,11 +131,14 @@ class Application:
                         "before",
                         chat_completion = chunk
                     )
-                    await self.gateway_client.emit("llm_response", {
-                        "is_stream": True,
-                        "chunk": chunk.model_dump(),
-                        "additional": gateway_additional
-                    })
+                    try:
+                        await self.gateway_client.emit("llm_response", {
+                            "is_stream": True,
+                            "chunk": chunk.model_dump(),
+                            "additional": gateway_additional
+                        })
+                    except Exception as ex:
+                        logger.error(f"llm_response gateway exception: {ex}", exc_info=ex)
                     await self.plugin_manager.trigger(
                         "on_llm_response",
                         "after",
@@ -145,11 +154,14 @@ class Application:
                     chat_completion = completion
                 )
 
-                await self.gateway_client.emit("llm_response", {
-                        "is_stream": False,
-                        "chat_completion": completion.model_dump(),
-                        "additional": gateway_additional
-                    })
+                try:
+                    await self.gateway_client.emit("llm_response", {
+                            "is_stream": False,
+                            "chat_completion": completion.model_dump(),
+                            "additional": gateway_additional
+                        })
+                except Exception as ex:
+                    logger.error(f"llm_response gateway exception: {ex}", exc_info=ex)
                 
                 await self.plugin_manager.trigger(
                     "on_llm_response",
@@ -163,11 +175,14 @@ class Application:
                 "before",
                 chat_completion = ex
             )
-            await self.gateway_client.emit("llm_response", {
-                    "is_stream": False,
-                    "error": str(ex),
-                    "additional": gateway_additional
-                })
+            try:
+                await self.gateway_client.emit("llm_response", {
+                        "is_stream": False,
+                        "error": str(ex),
+                        "additional": gateway_additional
+                    })
+            except Exception as ex:
+                logger.error(f"llm_response gateway exception: {ex}", exc_info=ex)
             
             await self.plugin_manager.trigger(
                 "on_llm_response",
@@ -191,16 +206,31 @@ class Application:
         
         # 触发发送消息前事件/hook
         await self.plugin_manager.trigger("on_message_before_send", "before", state=state)
-        state_dict: dict | None = await self.gateway_client.invoke("on_message_before_send", {
-            "state": state.model_dump(),
-            "additional": option.get("additional")
-        })
-        if state_dict is not None:
-            state = MessageState.model_validate(state_dict)
+        try:
+            state_dict: dict | None = await self.gateway_client.invoke("on_message_before_send", {
+                "state": state.model_dump(),
+                "additional": option.get("additional")
+            }, timeout=20000)
+            if state_dict is not None and (n_state := state_dict.get("state")):
+                state = MessageState.model_validate(n_state)
+        except InvokeSessionTimeoutError:
+            logger.warning("invoke响应超时")
+        except Exception as ex:
+            logger.error(f"gateway or 'MessageState.model_validate' exception: {ex}", exc_info=ex)
+            state.cancel()
         await self.plugin_manager.trigger("on_message_before_send", "after", state=state)
 
         # 检查是否被取消
         if state.canceled:
+            await self.plugin_manager.trigger("on_canceled", "before", state=state)
+            try:
+                await self.gateway_client.emit("on_canceled", {
+                    "state": state.model_dump(),
+                    "additional": option.get("additional")
+                })
+            except Exception as ex:
+                logger.error(f"gateway exception: {ex}", exc_info=ex)
+            await self.plugin_manager.trigger("on_canceled", "after", state=state)
             return
         
         # 开始响应任务
@@ -208,9 +238,12 @@ class Application:
         
         # 触发消息发送完成事件/hook
         await self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
-        await self.gateway_client.emit("on_message_after_sended", {
-            "state": state.model_dump()
-        })
+        try:
+            await self.gateway_client.emit("on_message_after_sended", {
+                "state": state.model_dump()
+            })
+        except Exception as ex:
+            logger.error(f"gateway exception: {ex}", exc_info=ex)
         await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
 
     def will_close(self):

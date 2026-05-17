@@ -1,5 +1,4 @@
 from typing import TypedDict, Literal
-from src.plugins.plugin import IPCTiming
 
 class PluginManifest(TypedDict):
     description: str

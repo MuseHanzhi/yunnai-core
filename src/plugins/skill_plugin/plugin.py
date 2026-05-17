@@ -42,12 +42,4 @@ class SkillPlugin(Plugin):
             
         if self.current_skill_content:
             state.append_dyn(self.current_skill_content)
-        
-    
-    @registry.on_llm_response()
-    def on_llm_response(self, chat_completion):
-        if isinstance(chat_completion, Exception):
-            return
-        
-        if chat_completion.choices and chat_completion.choices[0].finish_reason:
-            print(f"[SkillPlugin] skill:'{self.current_skill_name}'")
+            print(f"[SkillPlugin] skill: {self.current_skill_name}")

@@ -10,10 +10,11 @@ from src.core.logger.logger import LogCreator
 from src.core.app_context.types import PluginConfigOption
 from src.types.lfecycle_hooks import Hooks
 from src.plugins.plugin import (
-    Plugin
+    Plugin,
+    Timing
 )
 
-from .types import PluginManifest, IPCTiming
+from src.components.plugin_manager.types import *
 
 from typing import (
     Any
@@ -61,7 +62,7 @@ class PluginManager:
         
         for _, method in inspect.getmembers(plugin_class, inspect.isfunction):
             hook_name: Hooks | None = getattr(method, "_hook_name", None)
-            timing: IPCTiming | None = getattr(method, "_hook_timing", None)
+            timing: Timing | None = getattr(method, "_hook_timing", None)
             if not hook_name or not timing:
                 continue
             hook = HookMetadata(hook_name, method, plugin_instance)
@@ -166,7 +167,7 @@ class PluginManager:
         return plugin.emit(name, arguments)
 
 
-    async def trigger(self, hook_name: Hooks, ipc_timing: IPCTiming, *args, **arguments):
+    async def trigger(self, hook_name: Hooks, ipc_timing: Timing, *args, **arguments):
         if ipc_timing == "before":
             hooks = self.ipc_before_hooks.get(hook_name, [])
         elif ipc_timing == "after":

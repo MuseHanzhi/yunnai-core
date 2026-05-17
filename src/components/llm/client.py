@@ -60,6 +60,7 @@ class Client:
 
     def _build_params(self, state: MessageState):
         params = {
+            **state.option,
             "model": state.model_name,
             "stream": state.is_stream,
             "tools": self._map_tools(state.tools),
@@ -96,7 +97,7 @@ class Client:
         return self.create_state(model_name, message, is_stream)
     
     def create_state(self, model_name: str, message: Message, is_stream: bool = True):
-        state = MessageState(model_name, message=message, is_stream=is_stream)
+        state = MessageState.create(model_name, message=message, is_stream=is_stream)
         state.extra_body = self.default_extra_body
         return state
 

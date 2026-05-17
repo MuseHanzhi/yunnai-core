@@ -5,6 +5,7 @@ import uuid
 
 from src.core import app_context
 from src.core.logger.logger import LogCreator
+from src.types.lfecycle_hooks import Hooks
 
 from .base_gateway_client import BaseGatewayClient
 from .exceptions import *
@@ -20,6 +21,7 @@ from typing import (
 
 
 logger = LogCreator.instance.create(__name__)
+InvokeName = Hooks | str
 class GatewayClient(BaseGatewayClient):
     def __init__(self, event_loop: asyncio.AbstractEventLoop | None):
         self.config: GatewayConfig = self._load_config(app_context.data_home)
@@ -97,24 +99,24 @@ max_count=5
     
     async def invoke_response(self, appid: str, response: InvokeResponse):
         logger.debug(f"appid: '{appid}'. invoke: {response.id}. response_id: {response.id}")
-        any_app_session = self.request_sessions.get("*")
-        if any_app_session:
-            session = any_app_session.get(response.id)
+        app_request_session = self.request_sessions.get("*")
+        if app_request_session:
+            session = app_request_session.get(response.id)
         else:
-            appid_response = self.request_sessions.get(appid, {})
-            session = appid_response.get(response.id)
+            app_request_session = self.request_sessions.get(appid, {})
+            session = app_request_session.get(response.id)
 
         if session:
             if session["signal"].is_set():
-                del self.request_sessions[response.id]
+                del app_request_session[response.id]
                 return
             session["result"] = response.result
             session["signal"].set()
-            del self.request_sessions[response.id]
+            del app_request_session[response.id]
         else:
             logger.warning(f"appid: {appid}, invoke: {response.id}. no session")
     
-    async def invoke(self, name: str, args: dict[str, Any] | None = None, appid: str | None = None, timeout: int = 10000) -> Any:
+    async def invoke(self, name: InvokeName, args: dict[str, Any] | None = None, appid: str | None = None, timeout: int = 10000) -> Any:
         if not self.gateway.has_connection:
             logger.warning("no connection. skip invoke request")
             return None
@@ -130,37 +132,32 @@ max_count=5
             
         session = self._create_sesion(request_id)
 
-        async def timeout_task():
-            await asyncio.sleep(timeout / 1000)
-            if session["signal"].is_set():
-                return
-            session["signal"].set()
-            session["result"] = None
+        try:
+            await asyncio.wait_for(session["signal"].wait(), timeout=timeout / 1000)
+        except asyncio.TimeoutError:
             session["is_timeout"] = True
-        if timeout > 0:
-            self.event_loop.create_task(timeout_task())
-
-        await session["signal"].wait()
-
-        if session["is_timeout"]:
             raise InvokeSessionTimeoutError(request_id, appid, "invoke session timeout")
+        finally:
+            # 清理 session
+            if appid in self.request_sessions and request_id in self.request_sessions[appid]:
+                del self.request_sessions[appid][request_id]
 
         return session["result"]
     
-    async def emit(self, name: str, args: dict[str, Any] | None = None, appid: str | None = None):
+    async def emit(self, name: InvokeName, args: dict[str, Any] | None = None, appid: str | None = None):
         event = Event(id=str(uuid.uuid4()), name=name, arguments=args)
         try:
             await self.gateway.send(event.model_dump_json(), appid)
         except Exception as e:
             logger.error(f"emit: {name}. error: {e}", exc_info=e)
 
-    def register_event(self, event_name: str, event_func: Callable[[str, Any], None | Coroutine[Any, Any, None]]):
+    def register_event(self, event_name: str, event_func: Callable[[Any, str], None | Coroutine[Any, Any, None]]):
         self.event_handlers.setdefault(event_name, []).append(event_func)
     
-    def remove_event(self, event_name: str, event_func: Callable[[str, Any], None | Coroutine[Any, Any, None]]):
+    def remove_event(self, event_name: str, event_func: Callable[[Any, str], None | Coroutine[Any, Any, None]]):
         self.event_handlers.setdefault(event_name, []).remove(event_func)
     
-    def register_handler(self, handler_name: str, handler: Callable[[str, Any], Any | Coroutine[Any, Any, Any]]):
+    def register_handler(self, handler_name: str, handler: Callable[[Any, str], Any | Coroutine[Any, Any, Any]]):
         if handler_name in self.invoke_handlers:
             logger.warning(f"The handler with the same name '{handler_name}' has already been covered")
         self.invoke_handlers[handler_name] = handler

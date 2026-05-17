@@ -10,7 +10,7 @@ from typing import (
 if TYPE_CHECKING:
     from src.application import Application
 
-IPCTiming = Literal["before", "after"]
+Timing = Literal["before", "after"]
 class PluginInfo:
     def __init__(self, name: str, author: str, version: str, description: str, type: str):
         self.name = name
