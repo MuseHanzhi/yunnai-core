@@ -1,9 +1,8 @@
-import pathlib
-import tomllib
 import asyncio
 import uuid
 
 from src.core import app_context
+from src.core.app_context.types import GatewayOption
 from src.core.logger.logger import LogCreator
 from src.types.lfecycle_hooks import Hooks
 
@@ -24,8 +23,8 @@ logger = LogCreator.instance.create(__name__)
 InvokeName = Hooks | str
 class GatewayClient(BaseGatewayClient):
     def __init__(self, event_loop: asyncio.AbstractEventLoop | None):
-        self.config: GatewayConfig = self._load_config(app_context.data_home)
-        self.gateway = Gateway(self, self.config, event_loop)
+        self.config: GatewayOption = app_context.app_config.gateway
+        self.gateway = Gateway(self, self.config.server, self.config.apps, event_loop)
         self.event_loop = event_loop or asyncio.get_event_loop()
         
         # appid.request_id -> InvokeRequestSession
@@ -37,33 +36,6 @@ class GatewayClient(BaseGatewayClient):
         self.on_ready: Callable[[], None | Coroutine] | None = None
         self.on_connect: Callable[[str], None | Coroutine] | None = None
         self.on_disconnect: Callable[[str], None | Coroutine] | None = None
-    
-    def _load_config(self, data_home: str) -> GatewayConfig:
-        path = pathlib.Path(data_home) / "gateway.toml"
-        if not path.exists():
-            # 创建默认配置文件
-            config = GatewayConfig.model_validate({
-                "host": "127.0.0.1",
-                "port": 8866,
-                "token": "token_abc",
-                "max_count": 5,
-                "apps": []
-            })
-            path.write_text("""host="127.0.0.1"
-port=8866
-token="token_abc"
-max_count=5
-""", encoding="utf-8")
-            logger.info(f"created gateway.toml")
-            return config
-        
-        try:
-            config_text = path.read_text(encoding="utf-8")
-            config_dict = tomllib.loads(config_text)
-            return GatewayConfig.model_validate(config_dict)
-        except Exception as e:
-            logger.error(f"An error occurred while reading the configuration file. Please check the 'gateway.toml' configuration file", exc_info=e)
-            raise e
     
     async def error_response(self, appid: str, error: ProtocalError):
         logger.error(f"appid: '{appid}'. protocol error: {error.message}")
@@ -116,14 +88,33 @@ max_count=5
         else:
             logger.warning(f"appid: {appid}, invoke: {response.id}. no session")
     
+    async def _serial_invoke_all(self, name: InvokeName, args: dict | None = None, timeout: int = 10000):
+        appids = list(self.gateway.connections.keys())
+        if not appids:
+            return None
+            
+        current_args = args
+        last_result = None
+            
+        for appid in appids:
+            try:
+                last_result = await self.invoke(name, current_args, appid, timeout)
+                current_args = last_result
+            except Exception as ex:
+                logger.error(f"appid: {appid} exception: {ex}", exc_info=ex)
+                
+        return last_result
+    
     async def invoke(self, name: InvokeName, args: dict[str, Any] | None = None, appid: str | None = None, timeout: int = 10000) -> Any:
+        if not appid:
+            return await self._serial_invoke_all(name, args, timeout)
         if not self.gateway.has_connection:
             logger.warning("no connection. skip invoke request")
             return None
         request_id = str(uuid.uuid4())
         while request_id in self.request_sessions:
             request_id = str(uuid.uuid4())
-        
+
         request = InvokeRequest(id=request_id, method=name, arguments=args)
         try:
             await self.gateway.send(request.model_dump_json(), appid)

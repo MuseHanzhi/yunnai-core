@@ -10,7 +10,8 @@ class MessageDataOptions(TypedDict):
 
 class MessageOptions(TypedDict):
     message: str
-    request_id: str | None
     model_name: str
+    request_id: NotRequired[str]
+    tool_call_id: NotRequired[str]
     stream: NotRequired[bool]
     additional: NotRequired[dict]

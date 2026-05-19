@@ -28,27 +28,23 @@ class Application:
     """
     def __init__(self, event_loop: asyncio.AbstractEventLoop):
         # 基础
-        self.thread_executor = ThreadPoolExecutor(app_context.app_config["system"]["thread_workers"])
+        self.thread_executor = ThreadPoolExecutor(app_context.app_config.system.thread_workers)
         self.event_loop = event_loop
         
         # 组件
-        self.plugin_manager = PluginManager()
+        self.plugin_manager = PluginManager(self)
         self.llm_client: LLMClient = LLMClient()
         self.gateway_client = GatewayClient(self.event_loop)
         
         self.ipc_handler: IPCHandler = IPCHandler(self, self.gateway_client)
         
-        # 全局变量
-        self.completed_text = ""
-
-    def on_ipc_error(self, error: Exception):
-        logger.error(f"IPC服务启动异常: {error}", exc_info=error)
-        sys.exit(1)
     
-    def exit(self):
+    async def exit(self):
         try:
-            self.event_loop.run_until_complete(self.gateway_client.emit("on_app_will_close"))
-            self.event_loop.run_until_complete(self.gateway_client.end())
+            await self.plugin_manager.trigger("on_app_will_close", "before")
+            await self.gateway_client.emit("on_app_will_close")
+            await self.plugin_manager.trigger("on_app_will_close", "after")
+            await self.gateway_client.end()
         except:
             ...
         self.event_loop.stop()
@@ -66,24 +62,23 @@ class Application:
     def _setup_llm(self):
         logger.info("setup llm client")
         
-        default_llm = app_context.launch_args["default_llm"]
+        default_llm: str | None = app_context.launch_args.llm or app_context.app_config.llm.default
         if default_llm is None:
-            default_llm = app_context.app_config["llm"]["default"]
-        models = app_context.app_config["llm"]["models"]
-        llm_config = models.get(default_llm)
+            raise Exception("please specify llm model in config or launch args")
+        llm_config = app_context.app_config.llm.models.get(default_llm)
 
         logger.info(f"use llm: {default_llm}")
         if llm_config is None:
             raise Exception(f"llm model {default_llm} not found")
         
-        llm_api_key = os.getenv(llm_config["key_name"])
+        llm_api_key = os.getenv(llm_config.key_name)
         if llm_api_key is None:
-            raise Exception(f"请配置{llm_config['key_name']}环境变量")
+            raise Exception(f"请配置{llm_config.key_name}环境变量")
 
         self.llm_client.setup_client({
             "api_key": llm_api_key,
-            "base_url": llm_config["base_url"]
-        }, llm_config.get("extra_body", {}))
+            "base_url": llm_config.base_url
+        }, llm_config.extra_body)
 
         logger.info("setup llm client ok")
 
@@ -96,21 +91,21 @@ class Application:
 
         async def start_gateway():
             try:
-                self.gateway_client.on_ready = lambda: logger.info("gateway component started")
+                logger.info("initialize component 'gateway client'")
+                self.gateway_client.on_ready = lambda: logger.info("component 'gateway' initialized")
                 await self.gateway_client.start()
             except Exception as ex:
-                logger.error("start gateway component error", exc_info=ex)
-
+                logger.error("initialize component 'gateway client' error", exc_info=ex)
         self.event_loop.create_task(start_gateway())
         
-        logger.info("setup plugin manager")
-        self.plugin_manager.initialize(app_context.fixed_config["plugin_config"])
-        logger.info("setup plugin manager ok")
+        logger.info("initialize component 'plugin manager'")
+        self.plugin_manager.initialize(app_context.fixed_config.plugin_config)
+        logger.info("initialized component 'plugin manager'")
 
         # 触发插件对应时机
         asyncio.gather(
-                self.plugin_manager.trigger("on_ready", "before", app=self),
-                self.plugin_manager.trigger("on_ready", "after", app=self)
+                self.plugin_manager.trigger("on_ready", "before"),
+                self.plugin_manager.trigger("on_ready", "after")
             )
         asyncio.set_event_loop(self.event_loop)
         logger.info("app ready")
@@ -205,7 +200,7 @@ class Application:
         state: MessageState = self.llm_client.create_state(option["model_name"], msg, option.get("stream", True))
         
         # 触发发送消息前事件/hook
-        await self.plugin_manager.trigger("on_message_before_send", "before", state=state)
+        await self.plugin_manager.trigger("on_message_before_send", "before", state=state, additional=option.get("additional"))
         try:
             state_dict: dict | None = await self.gateway_client.invoke("on_message_before_send", {
                 "state": state.model_dump(),
@@ -245,10 +240,3 @@ class Application:
         except Exception as ex:
             logger.error(f"gateway exception: {ex}", exc_info=ex)
         await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
-
-    def will_close(self):
-        asyncio.gather(
-            self.plugin_manager.trigger("on_app_will_close", "before"),
-            self.plugin_manager.trigger("on_app_will_close", "after")
-        )
-        logger.info("app will close")

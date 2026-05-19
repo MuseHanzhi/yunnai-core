@@ -15,7 +15,7 @@ def env_check():
     result = True
 
     logger.info("start env check")
-    require_evns: list[str] = app_context.app_config["system"].get("require_env", [])
+    require_evns: list[str] = app_context.app_config.system.require_env
     for env_name in require_evns:
         env_value = os.getenv(env_name)
         if not env_value:
@@ -36,19 +36,16 @@ def main():
         main_app.initialize()
         logger.info("start event loop")
         event_loop.run_forever()
-        main_app.will_close()
     except KeyboardInterrupt:
-        main_app.exit()
-        sys.exit("keyboard interrupt detected, exiting...")
+        logger.info("keyboard interrupt detected, exiting...")
+        event_loop.run_until_complete(main_app.exit())
+        sys.exit(0)
     except Exception as e:
-        logger.error(f"running exception: {e}")
-        sys.exit(1)
-        
-    
+        sys.exit(f"running exception: {e}")
 load_dotenv()
 
 
-LogCreator.instance.load_config(app_context.app_config["logging"])
+LogCreator.instance.load_config(app_context.app_config.logging.model_dump())
 
 logger = LogCreator.instance.create(__name__)
 

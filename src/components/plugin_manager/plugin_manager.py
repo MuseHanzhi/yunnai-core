@@ -4,11 +4,13 @@ import inspect
 
 import yaml
 
-from src.plugins.hook_metadata import HookMetadata
 from src.plugins.plugin import Plugin, PluginInfo
 from src.core.logger.logger import LogCreator
 from src.core.app_context.types import PluginConfigOption
 from src.types.lfecycle_hooks import Hooks
+
+from .hook_metadata import HookMetadata
+
 from src.plugins.plugin import (
     Plugin,
     Timing
@@ -17,14 +19,19 @@ from src.plugins.plugin import (
 from src.components.plugin_manager.types import *
 
 from typing import (
-    Any
+    Any,
+    TYPE_CHECKING
 )
+
+if TYPE_CHECKING:
+    from src.application import Application
 
 logger = LogCreator.instance.create(__name__)
 class PluginManager:
 
-    def __init__(self):
+    def __init__(self, app: "Application"):
         self.plugins: dict[str, Plugin] = {}
+        self.app: "Application" = app
         self.ipc_before_hooks: dict[str, list[HookMetadata]] = {}
         self.ipc_after_hooks: dict[str, list[HookMetadata]] = {}
     
@@ -50,6 +57,9 @@ class PluginManager:
         try:
             plugin_class = getattr(plugin_module, entry_class)
             plugin_instance = plugin_class()
+            # 注入依赖
+            plugin_instance.application = self.app
+            plugin_instance.event_loop = self.app.event_loop
             plugin_instance.info = PluginInfo(
                 name=manifest["name"],
                 author=manifest.get("author", "unknown"),
@@ -76,7 +86,7 @@ class PluginManager:
 
     
     def initialize(self, config: PluginConfigOption):
-        search_path = config["search_path"]
+        search_path = config.search_path
         plugin_root_path = os.path.join(os.getcwd(), search_path)
         model_root = search_path.strip(".").strip("/").strip("\\").replace("/", ".").replace("\\", ".")
         plugin_dirs = os.listdir(plugin_root_path)

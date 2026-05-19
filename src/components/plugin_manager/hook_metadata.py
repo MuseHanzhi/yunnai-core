@@ -1,9 +1,8 @@
 import asyncio
 from typing import Callable
 
-from src.core import app_context
 from src.types.lfecycle_hooks import Hooks
-from .plugin import Plugin
+from src.plugins.plugin import Plugin
 
 class HookMetadata:
 

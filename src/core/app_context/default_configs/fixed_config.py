@@ -1,0 +1,8 @@
+default_config = """
+system_info:
+  name: "yunnai-core"
+  version: "1.0.0"
+plugin_config:  # 插件配置
+  search_path: "src/plugins"
+default_user_config: "config.yaml"
+"""

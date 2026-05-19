@@ -1,3 +1,4 @@
+import tomllib
 import pathlib
 import asyncio
 import sys
@@ -6,57 +7,103 @@ import os
 import yaml
 
 from src.core.logger.logger import LogCreator
+from .default_configs import (
+    app_config as default_app_config,
+    gateway_config as default_gateway_config,
+    fixed_config as default_fixed_config
+)
 
-from typing import TypeVar
+
 from .types import (
     AppConfigOption,
     LaunchArgs,
-    FixedConfigOption
+    FixedConfigOption,
+    GatewayOption
 )
 
-T = TypeVar("T")
 logger = LogCreator.instance.create(__name__)
 class AppContext:
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         self.launch_args = self._parse_args(sys.argv[1:])
-        self.fixed_config: FixedConfigOption = self._load_config("./fixed_config.yaml")
+        self.fixed_config: FixedConfigOption = self._load_fixed_config()
         self.data_home = self._get_data_home()
-        self.app_config: AppConfigOption = self._load_config(self.launch_args["config_path"] or os.path.join(self.data_home, "config.yaml"))
+        self.app_config: AppConfigOption = self._load_config(self.launch_args.config or os.path.join(self.data_home, "config.yaml"))
     
     def _get_data_home(self) -> str:
-        path = pathlib.Path("~", f".{self.fixed_config["system_info"]["name"]}").expanduser().absolute()
-        path.mkdir(exist_ok=True)
+        path = pathlib.Path("~", f".{self.fixed_config.system_info.name}").expanduser().absolute()
+        path.mkdir(exist_ok=True, parents=True)
         return str(path)
     
+    def _load_fixed_config(self) -> FixedConfigOption:
+        path = pathlib.Path("./fixed_config.yaml").expanduser()
+        if not path.exists():
+            path.write_text(default_fixed_config)
+            logger.info(f"Created fixed config file: '{path.absolute()}'")
+            config = yaml.safe_load(default_fixed_config)
+            return FixedConfigOption(**config)
+        
+        try:
+            with open(path, "r", encoding="utf-8") as fs:
+                config = yaml.safe_load(fs)
+                return FixedConfigOption(**config)
+        except PermissionError:
+            sys.exit(f"No permission to read fixed config file: '{path.absolute()}'")
+
     @classmethod
     def _parse_args(cls, args: list[str]) -> LaunchArgs:
-        temp_args = {}
+        temp_args: dict[str, str] = {}
         for argument in args:
-            key_value_pair = argument.split("=")
+            key_value_pair = argument.split("=", 1)
             if len(key_value_pair) >= 2:
-                temp_args[key_value_pair[0]] = "=".join(key_value_pair[1:])
+                temp_args[key_value_pair[0]] = key_value_pair[1]
             else:
                 logger.warning(f"Invalid argument: {argument}")
 
-        default_llm: str | None = temp_args.get("default_llm")
+        return LaunchArgs(**temp_args)
 
-        return LaunchArgs(
-            ipc_uri=temp_args.get("ipc_uri"),
-            default_llm=default_llm,
-            config_path=temp_args.get("config_path")
-        )
+    def _load_gateway_config(self, config_path: str) -> GatewayOption:
+        path = pathlib.Path(config_path).expanduser()
+        if not path.exists():
+            path.write_text(default_gateway_config)
+            logger.info(f"Created gateway config file: '{path.absolute()}'")
+            config: dict = tomllib.loads(default_gateway_config)
+        else:
+            try:
+                with open(path, "rb") as fs:
+                    config: dict = tomllib.load(fs)
+            except PermissionError:
+                sys.exit(f"No permission to read config file: '{path.absolute()}'")
+        try:
+            return GatewayOption(**config)
+        except:
+            raise
 
-    def _load_config(self, path_str: str) -> T:
+    def _load_config(self, path_str: str) -> AppConfigOption:
         path = pathlib.Path(path_str).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            sys.exit(f"Config file {path} not found")
-
+            path.write_text(default_app_config)
+            logger.info(f"Created config file: '{path.absolute()}'")
+            app_config: dict = yaml.safe_load(default_app_config)
+        else:
+            try:
+                with open(path, "r", encoding="utf-8") as fs:
+                    app_config: dict = yaml.safe_load(fs)
+            except PermissionError:
+                sys.exit(f"No permission to read config file: '{path.absolute()}'")
+        
+        # 加载网关配置
+        gateway_config_path = self.launch_args.gateway or str((path.parent / "gateway.toml").absolute())
         try:
-            with open(path, "r", encoding="utf-8") as fs:
-                return yaml.safe_load(fs)
-        except PermissionError:
-            sys.exit(f"No permission to read config file: '{path.absolute()}'")
+            gateway_config = self._load_gateway_config(gateway_config_path)
+        except Exception as e:
+            sys.exit(f"Invalid gateway config file: '{gateway_config_path}'\n{e}")
+        
+        # 合并配置
+        try:
+            return AppConfigOption(**app_config, gateway=gateway_config)
+        except Exception as e:
+            sys.exit(f"Invalid config file: '{path.absolute()}'\n{e}")
 
 app_context = AppContext()

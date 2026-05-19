@@ -17,7 +17,7 @@ class SkillPlugin(Plugin):
         self.references = []
     
     @registry.on_message_before_send()
-    def on_message_before_send(self, state: MessageState):
+    def on_message_before_send(self, state: MessageState, additional: dict | None):
         # state.skills = [{"name": skill["name"], "desc": skill["description"]} for skill in self.client.get_all_metadata()]
         raw_content = state.message.content
         msg = raw_content.split(" ")
@@ -32,7 +32,7 @@ class SkillPlugin(Plugin):
                 print(f"[SkillPlugin] Skill not found:'{skill_name}'")
                 state.canceled = True
                 return
-        elif msg[0].startswith("/skill:deactivate"):
+        elif msg[0].startswith("/skill:end"):
             skill_name = self.current_skill_name
             self.current_skill_content = ""
             self.current_skill_name = ""

@@ -3,8 +3,4 @@ modelcontextprotocol==1.0.1
 mcp==1.27.0
 openai==2.32.0
 websockets==16.0
-<<<<<<< HEAD
 pyyaml==6.0.3
-=======
-pyyaml==6.0.3
->>>>>>> 1e1d9bf244c635b9ec5696f2419d4791cc4c07ef

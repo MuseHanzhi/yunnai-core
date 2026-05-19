@@ -1,3 +1,5 @@
+import asyncio
+
 from openai.types.chat import ChatCompletionChunk, ChatCompletion
 
 from src.components.llm.message_state import MessageState
@@ -21,6 +23,8 @@ class PluginInfo:
 
 class Plugin:
     info: PluginInfo
+    application: "Application"
+    event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         self.enable = True
 
@@ -41,13 +45,12 @@ class Plugin:
 
         如果需要在此调用大模型，可以访问主程序的llm_client属性，调用create_state方法创建一个MessageState对象  
         然后调用lllm_client.stream_response方法获取大模型回复的流式数据，non_stream_response为非流式响应
-
         
         :param chat_completion: 大模型回复的内容
         """
         ...
     
-    def on_message_before_send(self, state: MessageState):
+    def on_message_before_send(self, state: MessageState, additional: dict | None):
         """
         向智能体发送信息前触发
         
@@ -61,7 +64,7 @@ class Plugin:
         """
         ...
 
-    def on_ready(self, app: "Application"):
+    def on_ready(self):
         """
         程序就绪时触发
         """

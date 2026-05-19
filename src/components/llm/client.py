@@ -1,6 +1,6 @@
 from typing import AsyncGenerator, Any
 
-from openai import AsyncOpenAI, AsyncStream
+from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from mcp.types import Tool
 
@@ -21,6 +21,10 @@ class Client:
             api_key=""
         )
         self.default_extra_body: dict[str, Any] = {}
+    
+    @property
+    def openai_client(self):
+        return self._client
     
     def setup_client(self, credential: Credential, extra_body: dict[str, Any] = {}):
         self._client.api_key = credential["api_key"]

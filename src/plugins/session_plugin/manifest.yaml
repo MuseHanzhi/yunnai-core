@@ -1,7 +1,7 @@
-name: "mcp_plugin"
+name: "session_plugin"
 author: "慕色寒枝"
 version: "1.0.0"
 description: "添加MCP支持"
-entry: "plugin.MCPPlugin"
+entry: "plugin.SessionPlugin"
 type: "system"
-order: 1
+order: 3

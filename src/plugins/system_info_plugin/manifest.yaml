@@ -4,4 +4,4 @@ version: "1.0.0"
 description: "将系统信息注入到上下文中"
 entry: "plugin.SystemInfoPlugin"
 type: "system"
-order: -1
+order: 0

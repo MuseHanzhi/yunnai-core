@@ -12,6 +12,11 @@ from .types import *
 from .protocals.types import *
 from .base_gateway_client import BaseGatewayClient
 
+from src.core.app_context.types import (
+    GatewayServerOption,
+    GatewayAppOption
+)
+
 from typing import (
     Callable,
     Coroutine,
@@ -21,8 +26,9 @@ from typing import (
 
 logger = LogCreator.instance.create(__name__)
 class Gateway:
-    def __init__(self, gateway_client: BaseGatewayClient, config: GatewayConfig, event_loop: asyncio.AbstractEventLoop | None):
+    def __init__(self, gateway_client: BaseGatewayClient, config: GatewayServerOption, apps: list[GatewayAppOption], event_loop: asyncio.AbstractEventLoop | None):
         self.gateway_client = gateway_client
+        self.apps = apps
         self.config = config
         self.event_loop = event_loop or asyncio.get_event_loop()
         self.ws_server = WebSocketServer(config.host, config.port)
@@ -141,8 +147,8 @@ class Gateway:
         except:
             return None
     
-    def _find_client(self, appid: str) -> App | None:
-        for app in self.config.apps:
+    def _find_client(self, appid: str) -> GatewayAppOption | None:
+        for app in self.apps:
             if app.appid == appid:
                 return app
         return None

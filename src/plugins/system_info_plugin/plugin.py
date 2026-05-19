@@ -17,7 +17,7 @@ class SystemInfoPlugin(Plugin):
         return requests.get("https://checkip.amazonaws.com/").text
 
     @registry.on_message_before_send()
-    def on_message_before_send(self, state: MessageState):
+    def on_message_before_send(self, state: MessageState, additional: dict | None):
         ip = self.get_ip()
 
         state.append_dyn(f"""
