@@ -8,7 +8,7 @@ from src.types.lfecycle_hooks import Hooks
 
 from .base_gateway_client import BaseGatewayClient
 from .exceptions import *
-from .protocals.types import *
+from .protocols.types import *
 from .types import *
 from .gateway import Gateway
 
@@ -37,7 +37,7 @@ class GatewayClient(BaseGatewayClient):
         self.on_connect: Callable[[str], None | Coroutine] | None = None
         self.on_disconnect: Callable[[str], None | Coroutine] | None = None
     
-    async def error_response(self, appid: str, error: ProtocalError):
+    async def error_response(self, appid: str, error: ProtocolError):
         logger.error(f"appid: '{appid}'. protocol error: {error.message}")
     
     async def event_request(self, appid: str, event: Event):

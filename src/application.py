@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import time
+import shutil
 import sys
 import os
 
@@ -9,9 +10,11 @@ from openai.types.chat import (
     ChatCompletionChunk
 )
 
+from src.core.logger.logger import LogCreator
+from src.core.tools import ToolFunction
+
 from src.components.llm.client import Client as LLMClient, MessageState
 from src.components.plugin_manager.plugin_manager import PluginManager
-from src.core.logger.logger import LogCreator
 from src.components.llm.message.tool_message import ToolMessage
 from src.components.llm.message.user_message import UserMessage
 from src.components.gateway.gateway_client import GatewayClient
@@ -37,7 +40,7 @@ class Application:
         self.gateway_client = GatewayClient(self.event_loop)
         
         self.ipc_handler: IPCHandler = IPCHandler(self, self.gateway_client)
-        
+        self._tool_functions: list[ToolFunction] = []
     
     async def exit(self):
         try:
@@ -82,12 +85,22 @@ class Application:
 
         logger.info("setup llm client ok")
 
+    def _setup_tools(self):
+        quit_app_tool = ToolFunction(
+            "self.quit_app",
+            "关闭应用，必须询问用户二次确认",
+            lambda _: self.exit()
+        )
+        self._tool_functions.append(quit_app_tool)
+
     def initialize(self):
         logger.info("application initialize")
         
         self._setup_llm()
 
         self.ipc_handler.init()
+
+        self._setup_tools()
 
         async def start_gateway():
             try:
@@ -185,6 +198,9 @@ class Application:
                 chat_completion = ex
             )
     
+    def add_tool(self, tool: ToolFunction):
+        self._tool_functions.append(tool)
+
     async def send_message(self, message: str, option: SendMessageOptions):
         logger.info(f"start handle message: {message}")
         if not isinstance(message, str):
@@ -198,16 +214,17 @@ class Application:
         else:
             msg.add_image(*option.get("image_urls", []))
         state: MessageState = self.llm_client.create_state(option["model_name"], msg, option.get("stream", True))
+        state.data.function_calls = [item.get_schema() for item in self._tool_functions]
         
         # 触发发送消息前事件/hook
         await self.plugin_manager.trigger("on_message_before_send", "before", state=state, additional=option.get("additional"))
         try:
-            state_dict: dict | None = await self.gateway_client.invoke("on_message_before_send", {
-                "state": state.model_dump(),
+            result: dict | None = await self.gateway_client.invoke("on_message_before_send", {
+                "state": state.to_dict(),
                 "additional": option.get("additional")
             }, timeout=20000)
-            if state_dict is not None and (n_state := state_dict.get("state")):
-                state = MessageState.model_validate(n_state)
+            if result is not None and (n_state := result.get("state")):
+                state.update(n_state)
         except InvokeSessionTimeoutError:
             logger.warning("invoke响应超时")
         except Exception as ex:
@@ -220,7 +237,7 @@ class Application:
             await self.plugin_manager.trigger("on_canceled", "before", state=state)
             try:
                 await self.gateway_client.emit("on_canceled", {
-                    "state": state.model_dump(),
+                    "state": state.to_dict(),
                     "additional": option.get("additional")
                 })
             except Exception as ex:
@@ -235,7 +252,7 @@ class Application:
         await self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
         try:
             await self.gateway_client.emit("on_message_after_sended", {
-                "state": state.model_dump()
+                "state": state.to_dict()
             })
         except Exception as ex:
             logger.error(f"gateway exception: {ex}", exc_info=ex)

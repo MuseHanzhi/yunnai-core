@@ -59,7 +59,7 @@ class CliPlugin(Plugin):
     def on_message_before_send(self, state: MessageState, additional: dict | None):
         # 检查是否有可用工具
         # state.is_stream = False   
-        state.top_prompt = """
+        state.data.top_prompt = """
 你叫云乃，是一个智能助手
 
 # 绝对遵守原则

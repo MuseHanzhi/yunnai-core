@@ -10,10 +10,6 @@ from .message.tool_message import ToolMessage
 from .message_state import MessageState
 from .types import *
 
-from pydantic import BaseModel
-class User(BaseModel):
-    username: str
-    nickname: str
 
 class Client:
     def __init__(self):
@@ -31,8 +27,9 @@ class Client:
         self._client.base_url = credential["base_url"]
         self.default_extra_body = extra_body
 
-    def _map_tools(self, tools: list[Tool]):
+    def _map_tools(self, tools: list[Tool], function_calls: list[ChatCompletionToolParam]):
         return [
+            *function_calls,
             {
                 "type": "function",
                 "function": {
@@ -62,12 +59,12 @@ class Client:
 {skill_prompt}
 """
 
-    def _build_params(self, state: MessageState):
+    def _build_params(self, state: MessageStateData):
         params = {
             **state.option,
             "model": state.model_name,
             "stream": state.is_stream,
-            "tools": self._map_tools(state.tools),
+            "tools": self._map_tools(state.tools, state.function_calls),
             "messages": [
                 {
                     "role": "system",
@@ -101,14 +98,14 @@ class Client:
         return self.create_state(model_name, message, is_stream)
     
     def create_state(self, model_name: str, message: Message, is_stream: bool = True):
-        state = MessageState.create(model_name, message=message, is_stream=is_stream)
-        state.extra_body = self.default_extra_body
+        state = MessageState(model_name, message=message, is_stream=is_stream)
+        state.data.extra_body = self.default_extra_body
         return state
 
     async def non_stream_response(self, state: MessageState) -> ChatCompletion:
         if state.is_stream:
             raise ValueError("当前消息状态为流式响应，请使用'stream_response'方法")
-        params = self._build_params(state)
+        params = self._build_params(state.data)
         try:
             completion: ChatCompletion = await self._client.chat.completions.create(**params)
             return completion
@@ -118,7 +115,7 @@ class Client:
     async def stream_response(self, state: MessageState) -> AsyncGenerator[Any, ChatCompletionChunk]:
         if not state.is_stream:
             raise ValueError("当前消息状态为非流式响应，请使用'non_stream_response'方法")
-        params = self._build_params(state)
+        params = self._build_params(state.data)
         try:
             completion = await self._client.chat.completions.create(**params)
             async for chunk in completion:

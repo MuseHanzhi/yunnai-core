@@ -66,10 +66,10 @@ class MCPPlugin(Plugin):
                 )
                 for tool in mcp_info['tools']
             ])
-        state.tools = tools
+        state.data.tools = tools
 
         if self.tool:
-            state.messages.append({
+            state.data.messages.append({
                 "role": "assistant",
                 "tool_calls": [
                     {

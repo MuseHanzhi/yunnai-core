@@ -10,13 +10,13 @@ class SessionPlugin(Plugin):
     
     @registry.on_message_before_send()
     def on_message_before_send(self, state, additional):
-        if state.messages:
-            self.messages.append(*state.messages)
-        state.messages = self.messages
+        if state.data.messages:
+            self.messages.append(*state.data.messages)
+        state.data.messages = self.messages
     
     @registry.on_message_after_sended()
     def on_message_after_sended(self, state):
-        self.messages.append(state.message.get_message())
+        self.messages.append(state.data.message.get_message())
     
     @registry.on_llm_response()
     def on_llm_response(self, chat_completion):

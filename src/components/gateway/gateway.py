@@ -9,7 +9,7 @@ from src.core.logger.logger import LogCreator
 from .websockets.websocket_server import WebSocketServer
 from .websockets.websocket_unit import WebSocketUnit
 from .types import *
-from .protocals.types import *
+from .protocols.types import *
 from .base_gateway_client import BaseGatewayClient
 
 from src.core.app_context.types import (
@@ -58,22 +58,22 @@ class Gateway:
             raise Exception("Client disconnected") from e
     
     async def _handle_message(self, message: str | bytes, websocket: WebSocketUnit, appid: str):
-        base_protocal: BaseProtocal
+        base_protocal: BaseProtocol
         data_dict: dict
         try:
             data_dict: dict = json.loads(message)
-            base_protocal = BaseProtocal.model_validate(data_dict)
+            base_protocal = BaseProtocol.model_validate(data_dict)
         except json.JSONDecodeError:
-            await websocket.send(ProtocalError(type="error", message="Invalid protocal").model_dump_json())
+            await websocket.send(ProtocolError(type="error", message="Invalid protocal").model_dump_json())
             return
         
         # 错误
         if base_protocal.type == "error":
-            error_data: ProtocalError
+            error_data: ProtocolError
             try:
-                error_data = ProtocalError.model_validate(data_dict)
+                error_data = ProtocolError.model_validate(data_dict)
             except:
-                await websocket.send(ProtocalError(type="error", message="Invalid protocal").model_dump_json())
+                await websocket.send(ProtocolError(type="error", message="Invalid protocal").model_dump_json())
                 return
             try:
                 res = self.gateway_client.error_response(appid, error_data)
@@ -87,7 +87,7 @@ class Gateway:
             try:
                 event = Event.model_validate(data_dict)
             except:
-                await websocket.send(ProtocalError(type="error", message="Invalid protocal").model_dump_json())
+                await websocket.send(ProtocolError(type="error", message="Invalid protocal").model_dump_json())
                 return
             try:
                 res = self.gateway_client.event_request(appid, event)
@@ -101,7 +101,7 @@ class Gateway:
             try:
                 invoke_request = InvokeRequest.model_validate(data_dict)
             except:
-                await websocket.send(ProtocalError(type="error", message="Invalid protocal").model_dump_json())
+                await websocket.send(ProtocolError(type="error", message="Invalid protocal").model_dump_json())
                 return
             try:
                 res = self.gateway_client.invoke_request(appid, invoke_request)
@@ -119,7 +119,7 @@ class Gateway:
             try:
                 invoke_response = InvokeResponse.model_validate(data_dict)
             except:
-                await websocket.send(ProtocalError(type="error", message="Invalid protocal").model_dump_json())
+                await websocket.send(ProtocolError(type="error", message="Invalid protocal").model_dump_json())
                 return
             try:
                 res = self.gateway_client.invoke_response(appid, invoke_response)
@@ -131,7 +131,7 @@ class Gateway:
         else:
             logger.warning(f"received unknow type '{base_protocal.type}'")
             try:
-                await websocket.send(ProtocalError(type="error", message=f"type '{base_protocal.type}' is no support").model_dump_json())
+                await websocket.send(ProtocolError(type="error", message=f"type '{base_protocal.type}' is no support").model_dump_json())
             except Exception as e:
                 logger.error("send error", exc_info=e)
         

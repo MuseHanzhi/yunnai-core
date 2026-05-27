@@ -19,7 +19,7 @@ class SkillPlugin(Plugin):
     @registry.on_message_before_send()
     def on_message_before_send(self, state: MessageState, additional: dict | None):
         # state.skills = [{"name": skill["name"], "desc": skill["description"]} for skill in self.client.get_all_metadata()]
-        raw_content = state.message.content
+        raw_content = state.data.message.content
         msg = raw_content.split(" ")
         if msg[0].startswith("/skill:"):
             _, skill_name = msg[0].split(":")
@@ -27,7 +27,7 @@ class SkillPlugin(Plugin):
                 self.current_skill_content = self.client.activate(skill_name)
                 self.current_skill_name = skill_name
                 print(f"[SkillPlugin] Activated skill:'{skill_name}'")
-                state.message.set_content(msg[-1])
+                state.data.message.set_content(msg[-1])
             except SkillNotFoundError:
                 print(f"[SkillPlugin] Skill not found:'{skill_name}'")
                 state.canceled = True

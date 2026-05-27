@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Coroutine
-from .protocals.types import *
+from .protocols.types import *
 
 
 class BaseGatewayClient(ABC):
@@ -17,5 +17,5 @@ class BaseGatewayClient(ABC):
         ...
     
     @abstractmethod
-    async def error_response(self, appid: str, error: ProtocalError) -> Coroutine[Any, Any, None] | None:
+    async def error_response(self, appid: str, error: ProtocolError) -> Coroutine[Any, Any, None] | None:
         ...
