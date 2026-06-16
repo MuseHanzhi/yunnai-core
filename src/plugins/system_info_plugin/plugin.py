@@ -7,8 +7,9 @@ import datetime
 import platform
 
 class SystemInfoPlugin(Plugin):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **keywords):
+        super().__init__(*args, **keywords)
+        self.enable = False
 
     def get_datetime(self):
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
