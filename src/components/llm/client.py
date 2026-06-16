@@ -28,8 +28,7 @@ class Client:
         self.default_extra_body = extra_body
 
     def _map_tools(self, tools: list[Tool], function_calls: list[ChatCompletionToolParam]):
-        return [
-            *function_calls,
+        temp_tools = [
             {
                 "type": "function",
                 "function": {
@@ -39,6 +38,10 @@ class Client:
                 }
             }
             for tool in tools
+        ]
+        return [
+            *function_calls,
+            *temp_tools
         ]
 
     def _build_sys_prompt(self, top_prompt: str, dyn_prompt: str, mcp_list: list[MCPData], skill_list: list[SkillData]):
