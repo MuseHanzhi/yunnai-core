@@ -1,8 +1,6 @@
-import asyncio
+import pathlib
 
 from openai.types.chat import ChatCompletionChunk, ChatCompletion
-
-from src.components.llm.message_state import MessageState
 
 from typing import (
     TYPE_CHECKING,
@@ -11,6 +9,7 @@ from typing import (
 )
 if TYPE_CHECKING:
     from src.application import Application
+    from src.components.llm.message_state import MessageState
 
 Timing = Literal["before", "after"]
 class PluginInfo:
@@ -24,9 +23,13 @@ class PluginInfo:
 class Plugin:
     info: PluginInfo
     application: "Application"
-    event_loop: asyncio.AbstractEventLoop
-    def __init__(self):
+    config_home_path: "pathlib.Path"
+    
+    def __init__(self, app: "Application", config_home: "pathlib.Path", info: PluginInfo):
         self.enable = True
+        self.application = app
+        self.info = info
+        self.config_home_path = config_home
 
 
     def deinit(self):
@@ -50,7 +53,7 @@ class Plugin:
         """
         ...
     
-    def on_message_before_send(self, state: MessageState, additional: dict | None):
+    def on_message_before_send(self, state: "MessageState", additional: dict | None):
         """
         向智能体发送信息前触发
         
@@ -58,7 +61,7 @@ class Plugin:
         """
         ...
     
-    def on_message_after_sended(self, state: MessageState):
+    def on_message_after_sended(self, state: "MessageState"):
         """
         向智能体发送信息后触发
         """

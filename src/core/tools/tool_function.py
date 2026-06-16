@@ -6,8 +6,9 @@ from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from typing import Callable, Any
 
 class ToolFunction:
-    async def __call__(self, property: PropertyMap) -> Any:
-        call_res = self.func(property)
+    async def __call__(self, properties: dict) -> Any:
+        property_map = PropertyMap(properties)
+        call_res = self.func(property_map)
         if asyncio.iscoroutine(call_res):
             result = await call_res
         else:

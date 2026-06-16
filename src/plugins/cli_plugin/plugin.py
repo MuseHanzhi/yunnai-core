@@ -1,16 +1,39 @@
 import asyncio
 import json
 
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
-
+from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
+from openai.types.chat.chat_completion_message_function_tool_call import Function
 from src.components.llm.message_state import MessageState
 from src.plugins import Plugin, registry
+from src.core.tools import ToolFunction
+
+from .tools import shell_tools
+
+SAFE_COMMANDS = [
+    "ls",
+    "pwd",
+    "cat",
+    "touch",
+    "mkdir"
+]
 
 class CliPlugin(Plugin):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **keywords):
+        super().__init__(*args, **keywords)
+        # self.enable = False
         self.llm_done_signal = asyncio.Event()
+        self.tool_signal: asyncio.Future[dict[str, str]] | None = None
+        self.tools: list[ToolFunction] = []
         self.replying = False
+        self.model_name = "qwen3.6-plus"
+        self.messages: list[ChatCompletionMessageParam] = []
+        self.tool_info: dict[str, str] = {
+            "id": "",
+            "name": "",
+            "arguments": ""
+        }
+        self.llm_message = ""
+        
 
     async def run(self):
         # 初始化时确保信号是关闭的
@@ -27,7 +50,7 @@ class CliPlugin(Plugin):
                 
                 # 3. 发送消息（触发流式回调）
                 await self.application.send_message(user_input, {
-                    "model_name": "qwen3.6-plus",
+                    "model_name": self.model_name,
                     "stream": True,
                 })
                 
@@ -44,11 +67,57 @@ class CliPlugin(Plugin):
                 # 发生异常时也要记得清除信号，防止影响下一轮
                 self.llm_done_signal.clear()
                 self.replying = False
+    
+    async def call_tool(self, name, arguments: dict):
+        finded_tool: ToolFunction | None = None
+        for tool in self.tools:
+            if tool.name == name:
+                finded_tool = tool
+                break
+        
+        if finded_tool:
+            call_res = finded_tool(arguments)
+            if asyncio.iscoroutine(call_res):
+                call_res = await call_res
+            return call_res
+        return f"# Error\n not found tool '{name}'"
+    
+    async def wait_tool(self):
+        print("开始等待工具执行")
+        self.tool_signal = asyncio.Future()
+        while self.running:
+            tool_info = await self.tool_signal
+            call_id = tool_info["id"]
+            tool_name = tool_info["name"]
+            arguments = tool_info["arguments"]
+            print(f"准备执行'{tool_name}'工具, 参数'{arguments}'")
+            call_result: str = await self.call_tool(tool_name, json.loads(arguments))
+
+            asyncio.create_task(self.application.send_message(call_result, {
+                "model_name": self.model_name,
+                "stream": True,
+                "tool_call_id": call_id,
+                "type": "tool"
+            }))
+
+            self.tool_signal = asyncio.Future()
+
+    
+    def on_validate_command(self, cmd: str, args: list[str]) -> bool:
+        print(f"将执行: {' '.join([cmd, *args])}")
+        allow = ""
+        while allow != "y" and allow != "n":
+            allow = input(f"是否继续？(y/n)").lower()
+        return allow.lower() == "y"
 
     @registry.on_ready()
     def on_ready(self):
         self.running = True
-        self.event_loop.create_task(self.run())
+        shell_tools.setup(SAFE_COMMANDS, self.on_validate_command)
+        self.tools = shell_tools.get_tools()
+        asyncio.create_task(self.run())
+        asyncio.create_task(self.wait_tool())
+
     
     @registry.on_canceled()
     def on_canceled(self, state: MessageState):
@@ -58,7 +127,13 @@ class CliPlugin(Plugin):
     @registry.on_message_before_send()
     def on_message_before_send(self, state: MessageState, additional: dict | None):
         # 检查是否有可用工具
-        # state.is_stream = False   
+        # state.is_stream = False
+        state.data.function_calls = [
+            tool.get_schema()
+            for tool in self.tools
+        ]
+        state.data.messages = [*self.messages]
+        self.messages.append(state.data.message.get_message())
         state.data.top_prompt = """
 你叫云乃，是一个智能助手
 
@@ -106,7 +181,7 @@ class CliPlugin(Plugin):
             self.llm_done_signal.set()
             return
 
-        if not self.replying:
+        if not self.replying and chat_completion.choices:
             print("思考中...")
             self.replying = True
         
@@ -125,20 +200,60 @@ class CliPlugin(Plugin):
             # 打印文本内容
             if delta.content:
                 print(delta.content, end="", flush=True)
+                self.llm_message += delta.content
+            if delta.tool_calls:
+                tools = delta.tool_calls
+                self.tool_info["id"] += tools[0].id or ""
+                if tools[0].function:
+                    self.tool_info["name"] += tools[0].function.name or ""
+                    self.tool_info["arguments"] += tools[0].function.arguments or ""
         
         # 处理完整响应
         else:
             message = chat_completion.choices[0].message
             # 普通文本回复或 JSON 响应（激活 MCP 模式）
             print(message.content)
+            self.llm_message = message.content or ""
+            if chat_completion.choices[0].message.tool_calls:
+                tool = chat_completion.choices[0].message.tool_calls[0]
+
+                # Safely extract function call info (tool may be a different call type)
+                self.tool_info["id"] += getattr(tool, "id", "") or ""
+                func = getattr(tool, "function", None)
+                if isinstance(func, Function) or func is not None:
+                    self.tool_info["name"] += func.name or ""
+                    self.tool_info["arguments"] += func.arguments or ""
         
         # 响应完成
         if chat_completion.choices[0].finish_reason:
-            print("\n[LLM] Done")
-            self.llm_done_signal.set()
-            self.replying = False
-            print()
-        
+            if chat_completion.choices[0].finish_reason == "tool_calls" and self.tool_signal and not self.tool_signal.done():
+                self.messages.append({
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": self.tool_info["id"],
+                        "type": "function",
+                        "function": {
+                            "name": self.tool_info["name"],
+                            "arguments": self.tool_info["arguments"]
+                        }
+                    }]
+                })
+                self.tool_signal.set_result(self.tool_info)
+                self.tool_info = {
+                    "id": "",
+                    "name": "",
+                    "arguments": ""
+                }
+            else:
+                print("\n[LLM] Done")
+                self.messages.append({
+                    "role": "assistant",
+                    "content": self.llm_message
+                })
+                self.llm_done_signal.set()
+                self.replying = False
+                self.llm_message = ""
+                print()
     
     @registry.on_app_will_close()
     def on_app_will_close(self):

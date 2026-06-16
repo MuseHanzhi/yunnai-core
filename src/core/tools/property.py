@@ -29,3 +29,7 @@ class PropertyMap:
             k: Property(v)
             for k,v in arguments.items()
         }
+    
+    @property
+    def raw_data(self):
+        return self._property_map

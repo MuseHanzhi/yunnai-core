@@ -10,7 +10,7 @@ class Number(BaseProperty):
 
     def get_schema(self):
         schema: dict = {
-            "type": "number",
+            "type": self.type,
             "description": self.description,
         }
         if self.range:

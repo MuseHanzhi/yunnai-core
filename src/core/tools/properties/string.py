@@ -7,7 +7,7 @@ class String(BaseProperty):
     
     def get_schema(self):
         schema: dict = {
-            "type": "string",
+            "type": self.type,
             "description": self.description,
         }
         if self.enum:

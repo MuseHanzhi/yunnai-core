@@ -11,7 +11,7 @@ class Integer(BaseProperty):
 
     def get_schema(self):
         schema: dict = {
-            "type": "number",
+            "type": "integer",
             "description": self.description,
         }
         if self.range:

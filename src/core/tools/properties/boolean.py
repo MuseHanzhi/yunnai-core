@@ -5,6 +5,6 @@ class Boolean(BaseProperty):
     
     def get_schema(self):
         return {
-            "type": "boolean",
+            "type": self.type,
             "description": self.description
         }

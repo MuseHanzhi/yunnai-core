@@ -6,7 +6,7 @@ class Object(BaseProperty):
     
     def get_schema(self) -> dict:
         return {
-            "type": "object",
+            "type": self.type,
             "description": self.description,
             "properties": {
                 p.name: p.get_schema()
