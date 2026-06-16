@@ -1,6 +1,8 @@
 import os
 import importlib
+import pathlib
 import inspect
+import copy
 
 import yaml
 
@@ -8,6 +10,7 @@ from src.plugins.plugin import Plugin, PluginInfo
 from src.core.logger.logger import LogCreator
 from src.core.app_context.types import PluginConfigOption
 from src.types.lfecycle_hooks import Hooks
+from src.core import app_context
 
 from .hook_metadata import HookMetadata
 
@@ -54,19 +57,22 @@ class PluginManager:
         plugin_module = importlib.import_module(entry_module)
         plugin_instance: Plugin
         plugin_class: Any = getattr(plugin_module, entry_class)
+
         try:
             plugin_class = getattr(plugin_module, entry_class)
-            plugin_instance = plugin_class()
-            # 注入依赖
-            plugin_instance.application = self.app
-            plugin_instance.event_loop = self.app.event_loop
-            plugin_instance.info = PluginInfo(
-                name=manifest["name"],
-                author=manifest.get("author", "unknown"),
-                version=manifest.get("version", "1.0.0"),
-                description=manifest.get("description", ""),
-                type=manifest.get("type", "normal")
-            )
+            # 实例化插件，并且注入依赖
+            plugin_config_path = (pathlib.Path(app_context.data_home)/ "plugins" / manifest["name"]).expanduser()
+            plugin_config_path.mkdir(parents=True, exist_ok=True)
+            plugin_instance = plugin_class(self.app,
+                                           plugin_config_path,
+                                           PluginInfo(
+                                               name=manifest["name"],
+                                               author=manifest.get("author", "unknown"),
+                                               version=manifest.get("version", "1.0.0"),
+                                               description=manifest.get("description", ""),
+                                               type=manifest.get("type", "normal")
+                                               )
+                                            )
         except TypeError as err:
             raise Exception(f"插件'{manifest['name']}'入口类'{entry_class}'无法实例化") from err
         
@@ -177,7 +183,7 @@ class PluginManager:
         return plugin.emit(name, arguments)
 
 
-    async def trigger(self, hook_name: Hooks, ipc_timing: Timing, *args, **arguments):
+    async def trigger(self, hook_name: Hooks, ipc_timing: Timing, type: Literal["hook", "event"] = "hook", *args, **arguments):
         if ipc_timing == "before":
             hooks = self.ipc_before_hooks.get(hook_name, [])
         elif ipc_timing == "after":
@@ -189,6 +195,11 @@ class PluginManager:
             if not hook.plugin.enable:
                 continue
             try:
-                await hook.run(*args, **arguments)
+                if type == "hook":
+                    await hook.run(*args, **arguments)
+                elif type == "event":
+                    copyed_args = copy.deepcopy(args)
+                    copyed_arguments = copy.deepcopy(arguments)
+                    await hook.run(*copyed_args, **copyed_arguments)
             except Exception as err:
-                logger.error(f"plugin '{hook.plugin.info.name}' hook '{hook_name}' exception", exc_info=err)
+                logger.error(f"plugin '{hook.plugin.info.name}' trigger '{hook_name}' exception", exc_info=err)

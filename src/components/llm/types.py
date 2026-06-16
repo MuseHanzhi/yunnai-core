@@ -54,15 +54,18 @@ class OutputShema(BaseModel):
 
 class MessageStateData(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
     is_stream: bool = True
-    canceled: bool = False
-    output_schema: OutputShema | None = None
+    canceled: bool = Field(default_factory=lambda: False)
+    canceller: str | None = Field(default_factory=lambda: None)
+    cancel_reason: str | None = Field(default_factory=lambda: None)
+    output_schema: OutputShema | None = Field(default_factory=lambda: None)
     model_name: str
     message: Message
     messages: list[ChatCompletionMessageParam] = Field(default_factory=list)
     extra_body: dict[str, Any] = Field(default_factory=dict)
-    dyn_prompt: str = ""
-    top_prompt: str = ""
+    dyn_prompt: str = Field(default_factory=lambda: "")
+    top_prompt: str = Field(default_factory=lambda: "")
     mcp_list: list[MCPData] = Field(default_factory=list)
     skills: list[SkillData] = Field(default_factory=list)
     tools: list[Tool] = Field(default_factory=list)

@@ -1,8 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
 import asyncio
 import time
-import shutil
-import sys
 import os
 
 from openai.types.chat import (
@@ -12,14 +11,15 @@ from openai.types.chat import (
 
 from src.core.logger.logger import LogCreator
 from src.core.tools import ToolFunction
+from .types.configs import *
 
+from src.components.ipc_com.exceptions import InvokeTimeoutError
 from src.components.llm.client import Client as LLMClient, MessageState
 from src.components.plugin_manager.plugin_manager import PluginManager
 from src.components.llm.message.tool_message import ToolMessage
 from src.components.llm.message.user_message import UserMessage
-from src.components.gateway.gateway_client import GatewayClient
+from src.components.ipc_com.ipc import IPC
 from src.ipc_handlers.ipc_handler import IPCHandler
-from src.components.gateway.exceptions import InvokeSessionTimeoutError
 
 from src.types.send_message_options import SendMessageOptions
 from src.core import app_context
@@ -31,27 +31,43 @@ class Application:
     """
     def __init__(self, event_loop: asyncio.AbstractEventLoop):
         # 基础
-        self.thread_executor = ThreadPoolExecutor(app_context.app_config.system.thread_workers)
+        sys_config: SystemConfig = SystemConfig.model_validate(app_context.app_config["system"])
+        self.thread_executor = ThreadPoolExecutor(sys_config.thread_workers)
         self.event_loop = event_loop
+        self.running: bool = False
         
         # 组件
         self.plugin_manager = PluginManager(self)
         self.llm_client: LLMClient = LLMClient()
-        self.gateway_client = GatewayClient(self.event_loop)
+        # self.gateway_client = GatewayClient(self.event_loop)
+        self.ipc: IPC | None = self._create_ipc()
         
-        self.ipc_handler: IPCHandler = IPCHandler(self, self.gateway_client)
+        self.ipc_handler: IPCHandler = IPCHandler(self, self.ipc)
         self._tool_functions: list[ToolFunction] = []
+        self._identity = str(uuid4())
+
+    
+    @staticmethod
+    def _create_ipc():
+        ipc_url = app_context.launch_args.ipc_url
+        if ipc_url is None:
+            return None
+        return IPC(ipc_url)
+
     
     async def exit(self):
         try:
-            await self.plugin_manager.trigger("on_app_will_close", "before")
-            await self.gateway_client.emit("on_app_will_close")
-            await self.plugin_manager.trigger("on_app_will_close", "after")
-            await self.gateway_client.end()
+            await self.plugin_manager.trigger("on_app_will_close", "before", "event")
+            if self.ipc and self.ipc.ready:
+                await self.ipc.emit("on_app_will_close")
+            # await self.gateway_client.emit("on_app_will_close")
+            await self.plugin_manager.trigger("on_app_will_close", "after", "event")
+            if self.ipc and self.ipc.ready:
+                await self.ipc.stop()
+            # await self.gateway_client.end()
         except:
             ...
-        self.event_loop.stop()
-        logger.info("event loop stop")
+        logger.info("app exit")
     
     async def run_in_thread(self, func, *args, **kwargs):
         try:
@@ -64,24 +80,25 @@ class Application:
 
     def _setup_llm(self):
         logger.info("setup llm client")
+        llm_config: LLMConfigOption = LLMConfigOption.model_validate(app_context.app_config["llm"])
         
-        default_llm: str | None = app_context.launch_args.llm or app_context.app_config.llm.default
+        default_llm: str | None = app_context.launch_args.llm or llm_config.default
         if default_llm is None:
             raise Exception("please specify llm model in config or launch args")
-        llm_config = app_context.app_config.llm.models.get(default_llm)
+        model_config = llm_config.models.get(default_llm)
 
         logger.info(f"use llm: {default_llm}")
-        if llm_config is None:
+        if model_config is None:
             raise Exception(f"llm model {default_llm} not found")
         
-        llm_api_key = os.getenv(llm_config.key_name)
+        llm_api_key = os.getenv(model_config.key_name)
         if llm_api_key is None:
-            raise Exception(f"请配置{llm_config.key_name}环境变量")
+            raise Exception(f"请配置{model_config.key_name}环境变量")
 
         self.llm_client.setup_client({
             "api_key": llm_api_key,
-            "base_url": llm_config.base_url
-        }, llm_config.extra_body)
+            "base_url": model_config.base_url
+        }, model_config.extra_body)
 
         logger.info("setup llm client ok")
 
@@ -93,33 +110,27 @@ class Application:
         )
         self._tool_functions.append(quit_app_tool)
 
-    def initialize(self):
+    async def initialize(self):
         logger.info("application initialize")
         
         self._setup_llm()
 
-        self.ipc_handler.init()
-
         self._setup_tools()
 
-        async def start_gateway():
-            try:
-                logger.info("initialize component 'gateway client'")
-                self.gateway_client.on_ready = lambda: logger.info("component 'gateway' initialized")
-                await self.gateway_client.start()
-            except Exception as ex:
-                logger.error("initialize component 'gateway client' error", exc_info=ex)
-        self.event_loop.create_task(start_gateway())
+        if self.ipc:
+            logger.info("initialize component 'ipc'")
+            self.ipc.on_end = lambda: logger.info("component 'ipc' stopped")
+            self.ipc.on_ready = lambda: logger.info("component 'ipc' initialized")
+            self.event_loop.create_task(self.ipc.start())
+            self.ipc_handler.init()
         
         logger.info("initialize component 'plugin manager'")
         self.plugin_manager.initialize(app_context.fixed_config.plugin_config)
         logger.info("initialized component 'plugin manager'")
 
         # 触发插件对应时机
-        asyncio.gather(
-                self.plugin_manager.trigger("on_ready", "before"),
-                self.plugin_manager.trigger("on_ready", "after")
-            )
+        await self.plugin_manager.trigger("on_ready", "before", "event")
+        await self.plugin_manager.trigger("on_ready", "after", "event")
         asyncio.set_event_loop(self.event_loop)
         logger.info("app ready")
     
@@ -137,19 +148,22 @@ class Application:
                     await self.plugin_manager.trigger(
                         "on_llm_response",
                         "before",
+                        "event",
                         chat_completion = chunk
                     )
                     try:
-                        await self.gateway_client.emit("llm_response", {
-                            "is_stream": True,
-                            "chunk": chunk.model_dump(),
-                            "additional": gateway_additional
-                        })
+                        if self.ipc and self.ipc.ready:
+                            await self.ipc.emit("llm_response", {
+                                "is_stream": True,
+                                "chunk": chunk.model_dump(),
+                                "additional": gateway_additional
+                            })
                     except Exception as ex:
                         logger.error(f"llm_response gateway exception: {ex}", exc_info=ex)
                     await self.plugin_manager.trigger(
                         "on_llm_response",
                         "after",
+                        "event",
                         chat_completion = chunk
                     )
             else:
@@ -159,11 +173,13 @@ class Application:
                 await self.plugin_manager.trigger(
                     "on_llm_response",
                     "before",
+                    "event",
                     chat_completion = completion
                 )
 
                 try:
-                    await self.gateway_client.emit("llm_response", {
+                    if self.ipc and self.ipc.ready:
+                        await self.ipc.emit("llm_response", {
                             "is_stream": False,
                             "chat_completion": completion.model_dump(),
                             "additional": gateway_additional
@@ -174,6 +190,7 @@ class Application:
                 await self.plugin_manager.trigger(
                     "on_llm_response",
                     "after",
+                    "event",
                     chat_completion = completion
                 )
             logger.info("llm response end")
@@ -181,10 +198,12 @@ class Application:
             await self.plugin_manager.trigger(
                 "on_llm_response",
                 "before",
+                "event",
                 chat_completion = ex
             )
             try:
-                await self.gateway_client.emit("llm_response", {
+                if self.ipc and self.ipc.ready:
+                    await self.ipc.emit("llm_response", {
                         "is_stream": False,
                         "error": str(ex),
                         "additional": gateway_additional
@@ -195,6 +214,7 @@ class Application:
             await self.plugin_manager.trigger(
                 "on_llm_response",
                 "after",
+                "event",
                 chat_completion = ex
             )
     
@@ -215,45 +235,74 @@ class Application:
             msg.add_image(*option.get("image_urls", []))
         state: MessageState = self.llm_client.create_state(option["model_name"], msg, option.get("stream", True))
         state.data.function_calls = [item.get_schema() for item in self._tool_functions]
+
+        # 取消发送插件验证
+        def state_cancel_validate(name: str, _: str):
+            if name in self.plugin_manager.plugins or self._identity == name:
+                return
+            return f"'{name}'不在已注册的插件列表中"
+
+        state.cancel_validate_handler = state_cancel_validate
         
         # 触发发送消息前事件/hook
         await self.plugin_manager.trigger("on_message_before_send", "before", state=state, additional=option.get("additional"))
+        # 触发IPC
         try:
-            result: dict | None = await self.gateway_client.invoke("on_message_before_send", {
-                "state": state.to_dict(),
-                "additional": option.get("additional")
-            }, timeout=20000)
-            if result is not None and (n_state := result.get("state")):
-                state.update(n_state)
-        except InvokeSessionTimeoutError:
-            logger.warning("invoke响应超时")
+            if self.ipc and self.ipc.ready:
+                result: dict | None
+                result = await self.ipc.invoke(
+                    "on_message_before_send",
+                    {"state": state.to_dict(), "additional": option.get("additional")},
+                    3)
+                if result is not None and (n_state := result.get("state")):
+                    state.update(n_state)
+        except InvokeTimeoutError:
+            logger.warning("invoke 'on_message_before_send' response timeout")
+        except asyncio.CancelledError:
+            logger.warning("invoke 'on_message_before_send' cancelled")
         except Exception as ex:
-            logger.error(f"gateway or 'MessageState.model_validate' exception: {ex}", exc_info=ex)
-            state.cancel()
+            logger.error(f"invoke 'on_message_before_send' exception: {ex}", exc_info=ex)
+            state.cancel(self._identity, f"[Application]invoke 'on_message_before_send' exception: {ex}")
+        # 触发发送消息后事件/hook
         await self.plugin_manager.trigger("on_message_before_send", "after", state=state)
 
         # 检查是否被取消
         if state.canceled:
-            await self.plugin_manager.trigger("on_canceled", "before", state=state)
+            logger.warning(f"向大模型发送消息在 '{state.canceller}' 取消, 原因: {state.cancel_reason}")
+            await self.plugin_manager.trigger("on_canceled", "before", "event", state=state)
             try:
-                await self.gateway_client.emit("on_canceled", {
-                    "state": state.to_dict(),
-                    "additional": option.get("additional")
-                })
+                if self.ipc and self.ipc.ready:
+                    await self.ipc.emit("on_canceled", {
+                        "state": state.to_dict(),
+                        "additional": option.get("additional")
+                    })
+                # await self.gateway_client.emit("on_canceled", {
+                #     "state": state.to_dict(),
+                #     "additional": option.get("additional")
+                # })
             except Exception as ex:
                 logger.error(f"gateway exception: {ex}", exc_info=ex)
-            await self.plugin_manager.trigger("on_canceled", "after", state=state)
+            await self.plugin_manager.trigger("on_canceled", "after", "event", state=state)
             return
         
         # 开始响应任务
         self.event_loop.create_task(self._start_response(state, option.get("additional")))
         
         # 触发消息发送完成事件/hook
-        await self.plugin_manager.trigger("on_message_after_sended", "before", state=state)
+        await self.plugin_manager.trigger("on_message_after_sended", "before", "event", state=state)
         try:
-            await self.gateway_client.emit("on_message_after_sended", {
-                "state": state.to_dict()
-            })
+            if self.ipc and self.ipc.ready:
+                await self.ipc.emit("on_message_after_sended", {
+                    "state": state.to_dict()
+                })
+            # await self.gateway_client.emit("on_message_after_sended", {
+            #     "state": state.to_dict()
+            # })
         except Exception as ex:
             logger.error(f"gateway exception: {ex}", exc_info=ex)
-        await self.plugin_manager.trigger("on_message_after_sended", "after", state=state)
+        await self.plugin_manager.trigger("on_message_after_sended", "after", "event", state=state)
+
+    async def run(self):
+        self.running = True
+        while self.running:
+            await asyncio.sleep(500)
