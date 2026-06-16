@@ -27,82 +27,91 @@ if TYPE_CHECKING:
         MCPStdioOption
     )
 
+
 OnConnectedHandler = Callable[[], None]
 OnConnectErrorHandler = Callable[[Exception], None]
 logger = LogCreator().instance.create(__name__)
 class MCPClient:
     def __init__(self, client_info: "ClientInfo", config: "MCPOption"):
-        self.session: ClientSession | None = None
-        self.client_future: asyncio.Future | None = None
+        self._session: ClientSession | None = None
+        self. _client_future: asyncio.Future | None = None
         self.config = config
         self.client_info = client_info
         self.on_connected: OnConnectedHandler | None = None
         self.on_connect_error: OnConnectErrorHandler | None = None
+        self.on_disconnected: Callable[[], None] | None = None
+        self.on_error: OnConnectErrorHandler | None = None
+
+        self.tools = False
+        self.resources = False
+        self.prompts = False
     
+    @property
+    def is_connected(self) -> bool:
+        return self._session is not None and self._client_future is not None and not self._client_future.done()
+
     @staticmethod
     async def handle_redirect(auth_url: str) -> None:
         logger.debug(f"redirected: {auth_url}")
     
-    async def connect_streamable_http(self, config: "MCPStreamableHTTPOption"):
-        auth_option = config.get("auth_option")
-        if auth_option:
-            await self.auth_connect(config)
-            return
-        
+    async def _connect_normal_streamable_http(self, config: "MCPStreamableHTTPOption"):
         headers = config.get("headers")
         if headers:
             headers = self.replace_env_key(headers)
-        is_exception = False
+        connected = False
         try:
             async with httpx.AsyncClient(headers=headers) as http_client:
-                try:
-                    async with streamable_http_client(config["url"], http_client=http_client) as (read, write, _):
-                        try:
-                            async with ClientSession(read, write) as session:
-                                try:
-                                    self.session = session
-                                    await self.session.initialize()
-                                except Exception as ex:
-                                    if self.on_connect_error:
-                                        self.on_connect_error(ex)
-                                        is_exception = True
-                                if self.on_connected:
-                                    self.on_connected()
-                                self.client_future = asyncio.Future()
-                                await self.client_future
+                async with streamable_http_client(config["url"], http_client=http_client) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        self._session = session
+                        initialize_result = await session.initialize()
+                        self.tools = initialize_result.capabilities.tools is not None
+                        self.resources = initialize_result.capabilities.resources is not None
+                        self.prompts = initialize_result.capabilities.prompts is not None
 
-                        except Exception as ex:
-                            if not is_exception:
-                                if self.on_connect_error:
-                                    self.on_connect_error(ex)
-                                    is_exception = True
-                except Exception as ex:
-                            if not is_exception:
-                                if self.on_connect_error:
-                                    self.on_connect_error(ex)
-                                    is_exception = True
+                        if self.on_connected:
+                            self.on_connected()
+                        connected = True
+                        self. _client_future = asyncio.Future()
+                        await self. _client_future
+                        if self.on_disconnected:
+                            self.on_disconnected()
         except Exception as ex:
-            if not is_exception:
-                if self.on_connect_error:
-                    self.on_connect_error(ex)
-                    is_exception = True
+            if self.on_connect_error and not connected:
+                self.on_connect_error(ex)
+            elif self.on_error:
+                self.on_error(ex)
+            
+    
+    async def _connect_streamable_http(self, config: "MCPStreamableHTTPOption"):
+        if "auth" in config:
+            await self._auth_connect(config)
+        else:
+            await self._connect_normal_streamable_http(config)
         
-    async def handle_callback(self) -> tuple[str, str | None]:
-        auth_option = self.config.get("auth_option")
+        
+    async def _handle_callback(self) -> tuple[str, str | None]:
+        auth_option = self.config.get("auth")
         if auth_option:
             params = parse_qs(urlparse(auth_option["callback_url"]).query)
             return params["code"][0], params.get("state", [None])[0]
-        raise Exception("'auth_option'未配置'callback_url'")
+        raise Exception("'auth'未配置'callback_url'")
 
-    async def auth_connect(self, config: "MCPStreamableHTTPOption"):
-        auth_option = config.get("auth_option")
+    async def _auth_connect(self, config: "MCPStreamableHTTPOption"):
+        auth_option = config.get("auth")
         if not auth_option or not auth_option.get("callback_url"):
             if self.on_connect_error:
-                self.on_connect_error(ConnectionError("'auth_option'配置不正确"))
+                self.on_connect_error(ConnectionError("'auth'配置不正确"))
             return
+        
+        # 1. 支持动态 scope
+        scope = auth_option.get("scope", "user")
+        
         url_parsed = urlparse(config["url"])
         base_url = f"{url_parsed.scheme}://{url_parsed.netloc}"
 
+        # 2. 建议将 storage 提升为类成员以支持 refresh_token
+        # 这里暂时保持局部变量，但需注意每次重连都需要重新授权
         oauth_auth = OAuthClientProvider(
             server_url=base_url,
             client_metadata=OAuthClientMetadata(
@@ -110,47 +119,69 @@ class MCPClient:
                 redirect_uris=[AnyUrl(url) for url in auth_option["redirect_uris"]],
                 grant_types=["authorization_code", "refresh_token"],
                 response_types=["code"],
-                scope="user"
+                scope=scope
             ),
-            storage=InMemoryTokenStorage(),
+            storage=InMemoryTokenStorage(), # 注意：如需持久化请修改此处
             redirect_handler=MCPClient.handle_redirect,
-            callback_handler=self.handle_callback
+            callback_handler=self._handle_callback
         )
 
         headers = config.get("headers")
         if headers:
             headers = self.replace_env_key(headers)
+        connected = False
+        try:
+            async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True, headers=headers) as http_client:
+                async with streamable_http_client(config["url"], http_client=http_client) as (read, write, _):
+                    async with ClientSession(read, write) as session:
+                        self._session = session
+                        initialize_result = await session.initialize()
+                        self.tools = initialize_result.capabilities.tools is not None
+                        self.resources = initialize_result.capabilities.resources is not None
+                        self.prompts = initialize_result.capabilities.prompts is not None
 
-        async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True, headers=headers) as http_client:
-            async with streamable_http_client(config["url"], http_client=http_client) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    self.session = session
-                    await self.session.initialize()
-                    self.client_future = asyncio.Future()
-                    if self.on_connected:
-                        self.on_connected()
-                    await self.client_future
+                        connected = True
+                        self._client_future = asyncio.Future()
+                        if self.on_connected:
+                            self.on_connected()
+                        await self._client_future
+                        if self.on_disconnected:
+                            self.on_disconnected()
+        except Exception as ex:
+            if self.on_connect_error and not connected:
+                self.on_connect_error(ex)
+            elif self.on_error:
+                self.on_error(ex)
 
     
-    async def connect_stdio(self, config: "MCPStdioOption"):
+    async def _connect_stdio(self, config: "MCPStdioOption"):
+        connected = False
         try:
             parameters = StdioServerParameters(
-                command=config["cmd"],
-                args=config["args"],
+                command=config["command"],
+                args=config.get("args", []),
                 env=config.get("env")
             )
             async with stdio_client(parameters) as (read, write):
                 async with ClientSession(read, write) as session:
-                    self.session = session
-                    await self.session.initialize()
-                    self.client_future = asyncio.Future()
+                    self._session = session
+                    initialize_result = await session.initialize()
+                    self.tools = initialize_result.capabilities.tools is not None
+                    self.resources = initialize_result.capabilities.resources is not None
+                    self.prompts = initialize_result.capabilities.prompts is not None
+                    
+                    connected = False
+                    self. _client_future = asyncio.Future()
                     if self.on_connected:
                         self.on_connected()
-                    await self.client_future
+                    await self. _client_future
+                    if self.on_disconnected:
+                            self.on_disconnected()
         except Exception as ex:
-            if self.on_connect_error:
+            if self.on_connect_error and not connected:
                 self.on_connect_error(ex)
-            logger.error(f"出现异常: {ex}", exc_info=ex)
+            elif self.on_error:
+                self.on_error(ex)
     
     @staticmethod
     def replace_env_key(headers: dict[str, str], none_policy: Literal["empty", "skip", "remove"] = "empty"):
@@ -181,17 +212,17 @@ class MCPClient:
     
     async def connect(self):
         if "url" in self.config:
-            await self.connect_streamable_http(self.config)
-        elif "cmd" in self.config:
-            await self.connect_stdio(self.config)
+            await self._connect_streamable_http(self.config)
+        elif "command" in self.config:
+            await self._connect_stdio(self.config)
         elif self.on_connect_error:
             self.on_connect_error(ConnectionError("mcp配置错误"))
     
     def disconnect(self):
-        if self.client_future:
-            self.client_future.set_result(None)
+        if self. _client_future and not self. _client_future.done():
+            self. _client_future.set_result(None)
     
     def get_session(self):
-        if self.session is None:
+        if self._session is None:
             raise ConnectionError("MCP未连接")
-        return self.session
+        return self._session

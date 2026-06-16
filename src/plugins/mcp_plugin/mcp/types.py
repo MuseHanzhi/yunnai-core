@@ -36,17 +36,17 @@ class AuthOption(TypedDict):
     redirect_uris: list[str]
 
 class MCPStreamableHTTPOption(TypedDict):
-    enable: bool
     url: str
-    desc: str
+    enable: NotRequired[bool]
+    desc: NotRequired[str]
     headers: NotRequired[dict[str, str]]
-    auth_option: NotRequired[AuthOption]
+    auth: NotRequired[AuthOption]
 
 class MCPStdioOption(TypedDict):
-    enable: bool
-    cmd: str
-    desc: str
-    args: list[str]
+    command: str
+    disabled: NotRequired[bool]
+    desc: NotRequired[str]
+    args: NotRequired[list[str]]
     env: NotRequired[dict[str, str]]
 
 MCPOption = Union[MCPStreamableHTTPOption, MCPStdioOption]
