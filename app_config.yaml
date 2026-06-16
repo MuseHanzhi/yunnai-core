@@ -18,7 +18,7 @@ logging:    # 日志
             - 
                 <<: *file_handler
 system:     # 系统配置
-    require_env:
+    require_envs:
         - "DASHSCOPE_API_KEY"
         # - "KIMI_API_KEY"
         # - "DOUAO_API_KEY"

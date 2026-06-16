@@ -4,3 +4,11 @@ system_info:
 plugin_config:  # 插件配置
   search_path: "src/plugins"
 default_user_config: "config.yaml"
+author_info:
+  name: "慕色寒枝"
+  github: "https://github.com/MuseHanzhi"
+  bilibili: "https://space.bilibili.com/353472826"
+  contact:
+    email: "musehanzhi@163.com"
+    qq: "2423688977"
+    wx: "musehanzhi"

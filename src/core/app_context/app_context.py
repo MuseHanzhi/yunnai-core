@@ -7,33 +7,90 @@ import os
 import yaml
 
 from src.core.logger.logger import LogCreator
+from .app_config import AppConfig
 from .default_configs import (
     app_config as default_app_config,
     gateway_config as default_gateway_config,
     fixed_config as default_fixed_config
 )
 
-
+from typing import (
+    Any,
+    Literal
+)
 from .types import (
-    AppConfigOption,
     LaunchArgs,
-    FixedConfigOption,
-    GatewayOption
+    FixedConfigOption
 )
 
 logger = LogCreator.instance.create(__name__)
 class AppContext:
+    """
+    程序上下文类，存储了整个程序的类配置等
+    """
+
     event_loop: asyncio.AbstractEventLoop
     def __init__(self):
-        self.launch_args = self._parse_args(sys.argv[1:])
-        self.fixed_config: FixedConfigOption = self._load_fixed_config()
-        self.data_home = self._get_data_home()
-        self.app_config: AppConfigOption = self._load_config(self.launch_args.config or os.path.join(self.data_home, "config.yaml"))
+        self._launch_args = self._parse_args(sys.argv[1:])
+        self._fixed_config: FixedConfigOption = self._load_fixed_config()
+        self._data_home_path = self._data_home()
+        self.__program_data_path = self._program_data_path()
+        self._app_config = AppConfig(self._load_config(self._launch_args.config or os.path.join(self._data_home_path, "config.yaml")))
+        self._mode: Literal["core", "client"] = "core" if self._launch_args.ipc_url is None else "client"
     
-    def _get_data_home(self) -> str:
+    @property
+    def mode(self):
+        """
+        运行模式
+        core: 内核模式
+        client: 客户端模式
+        """
+        return self._mode
+
+    
+    @property
+    def app_config(self):
+        """
+        应用程序配置
+        """
+        return self._app_config
+    
+    @property
+    def program_data_path(self):
+        """
+        程序数据存储路径
+        """
+        return self.__program_data_path
+
+    @property
+    def data_home(self):
+        """
+        用户文件目录下的程序配置路径
+        """
+        return self._data_home_path
+    
+    @property
+    def fixed_config(self):
+        """
+        固定参数，不可变的固定参数
+        """
+        return self._fixed_config
+
+    @property
+    def launch_args(self):
+        """
+        启动参数，命令行传参的内容
+        """
+        return self._launch_args
+    
+    def _data_home(self) -> str:
         path = pathlib.Path("~", f".{self.fixed_config.system_info.name}").expanduser().absolute()
         path.mkdir(exist_ok=True, parents=True)
         return str(path)
+    
+    @staticmethod
+    def _program_data_path():
+        return str(pathlib.Path(".", "data"))
     
     def _load_fixed_config(self) -> FixedConfigOption:
         path = pathlib.Path("./fixed_config.yaml").expanduser()
@@ -62,7 +119,7 @@ class AppContext:
 
         return LaunchArgs(**temp_args)
 
-    def _load_gateway_config(self, config_path: str) -> GatewayOption:
+    def _load_gateway_config(self, config_path: str) -> dict[str, Any]:
         path = pathlib.Path(config_path).expanduser()
         if not path.exists():
             path.write_text(default_gateway_config)
@@ -75,11 +132,11 @@ class AppContext:
             except PermissionError:
                 sys.exit(f"No permission to read config file: '{path.absolute()}'")
         try:
-            return GatewayOption(**config)
+            return config
         except:
             raise
 
-    def _load_config(self, path_str: str) -> AppConfigOption:
+    def _load_config(self, path_str: str) -> dict[str, Any]:
         path = pathlib.Path(path_str).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
@@ -93,16 +150,9 @@ class AppContext:
             except PermissionError:
                 sys.exit(f"No permission to read config file: '{path.absolute()}'")
         
-        # 加载网关配置
-        gateway_config_path = self.launch_args.gateway or str((path.parent / "gateway.toml").absolute())
-        try:
-            gateway_config = self._load_gateway_config(gateway_config_path)
-        except Exception as e:
-            sys.exit(f"Invalid gateway config file: '{gateway_config_path}'\n{e}")
-        
         # 合并配置
         try:
-            return AppConfigOption(**app_config, gateway=gateway_config)
+            return app_config
         except Exception as e:
             sys.exit(f"Invalid config file: '{path.absolute()}'\n{e}")
 
