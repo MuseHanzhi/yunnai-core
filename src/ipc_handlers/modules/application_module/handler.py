@@ -5,8 +5,6 @@ from typing import (
     Any
 )
 from .types import *
-from src.ipc_handlers.types import IPCInvokeResult
-# from src.components.gateway.gateway_client import GatewayClient
 from src.components.ipc_com.ipc import IPC
 from src.core.logger.logger import LogCreator
 
@@ -19,7 +17,6 @@ class Handler:
     def __init__(self, app: "Application", ipc: IPC):
         self.app = app
         self.ipc = ipc
-        self.event_loop: asyncio.AbstractEventLoop = app.event_loop
         self.init()
     
     def init(self):
@@ -31,7 +28,7 @@ class Handler:
     
     def send_message(self, params: Any):
         message: MessageOptions = params
-        self.event_loop.create_task(self.app.send_message(message['message'], {
+        asyncio.create_task(self.app.send_message(message['message'], {
             "model_name": message["model_name"],
             "stream": message.get("stream", True),
             "additional": {

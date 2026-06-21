@@ -28,12 +28,11 @@ def env_check():
 
 async def main():
     event_loop = asyncio.get_event_loop()
-    app_context.event_loop = event_loop
     if not env_check():
         sys.exit("Environment check failed. Please check the environment variables.")
 
     try:
-        main_app = Application(event_loop)
+        main_app = Application()
         await main_app.initialize()
         await main_app.run()
         logger.info("start event loop")

@@ -27,8 +27,9 @@ class LaunchArgs(BaseModel):
     Launch arguments for the core.
     """
     model_config = pydantic.ConfigDict(extra="ignore")
-    llm: str | None = None
-    config: str | None = None
-    ipc_url: str | None = None
+    llm: str | None = pydantic.Field(default_factory=lambda: None)
+    config: str | None = pydantic.Field(default_factory=lambda: None)
+    ipc_url: str | None = pydantic.Field(default_factory=lambda: None)
+    pwd: str | None = pydantic.Field(default_factory=lambda: None)
 
 # endregion

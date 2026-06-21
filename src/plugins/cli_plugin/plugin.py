@@ -20,7 +20,7 @@ SAFE_COMMANDS = [
 class CliPlugin(Plugin):
     def __init__(self, *args, **keywords):
         super().__init__(*args, **keywords)
-        # self.enable = False
+        self.enable = False
         self.llm_done_signal = asyncio.Event()
         self.tool_signal: asyncio.Future[dict[str, str]] | None = None
         self.tools: list[ToolFunction] = []
@@ -51,7 +51,7 @@ class CliPlugin(Plugin):
                 # 3. 发送消息（触发流式回调）
                 await self.application.send_message(user_input, {
                     "model_name": self.model_name,
-                    "stream": True,
+                    "stream": False,
                 })
                 
                 # 4. 安心等待大模型输出完毕
@@ -105,6 +105,7 @@ class CliPlugin(Plugin):
     
     def on_validate_command(self, cmd: str, args: list[str]) -> bool:
         print(f"将执行: {' '.join([cmd, *args])}")
+        print()
         allow = ""
         while allow != "y" and allow != "n":
             allow = input(f"是否继续？(y/n)").lower()
@@ -125,7 +126,7 @@ class CliPlugin(Plugin):
         print("[CliPlugin]: 取消发送")
 
     @registry.on_message_before_send()
-    def on_message_before_send(self, state: MessageState, additional: dict | None):
+    def on_message_before_send(self, state: MessageState, additional: dict):
         # 检查是否有可用工具
         # state.is_stream = False
         state.data.function_calls = [

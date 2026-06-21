@@ -28,15 +28,20 @@ class AppContext:
     """
     程序上下文类，存储了整个程序的类配置等
     """
-
-    event_loop: asyncio.AbstractEventLoop
     def __init__(self):
         self._launch_args = self._parse_args(sys.argv[1:])
         self._fixed_config: FixedConfigOption = self._load_fixed_config()
-        self._data_home_path = self._data_home()
-        self.__program_data_path = self._program_data_path()
-        self._app_config = AppConfig(self._load_config(self._launch_args.config or os.path.join(self._data_home_path, "config.yaml")))
+        self._home_path = self._get_home_path()
+        self._data_path = self._get_data_path()
+        self._app_config = AppConfig(self._load_config(self._launch_args.config or os.path.join(str(self._home_path), "config.yaml")))
         self._mode: Literal["core", "client"] = "core" if self._launch_args.ipc_url is None else "client"
+    #region 属性
+    @property
+    def data_path(self):
+        """
+        用户文件目录下的程序数据路径
+        """
+        return self._data_path
     
     @property
     def mode(self):
@@ -54,20 +59,13 @@ class AppContext:
         应用程序配置
         """
         return self._app_config
-    
-    @property
-    def program_data_path(self):
-        """
-        程序数据存储路径
-        """
-        return self.__program_data_path
 
     @property
-    def data_home(self):
+    def home_path(self):
         """
         用户文件目录下的程序配置路径
         """
-        return self._data_home_path
+        return self._home_path
     
     @property
     def fixed_config(self):
@@ -82,15 +80,17 @@ class AppContext:
         启动参数，命令行传参的内容
         """
         return self._launch_args
+    #endregion
     
-    def _data_home(self) -> str:
+    def _get_data_path(self):
+        path = self._home_path / "data"
+        path.mkdir(exist_ok=True, parents=True)
+        return path
+
+    def _get_home_path(self) -> pathlib.Path:
         path = pathlib.Path("~", f".{self.fixed_config.system_info.name}").expanduser().absolute()
         path.mkdir(exist_ok=True, parents=True)
-        return str(path)
-    
-    @staticmethod
-    def _program_data_path():
-        return str(pathlib.Path(".", "data"))
+        return path
     
     def _load_fixed_config(self) -> FixedConfigOption:
         path = pathlib.Path("./fixed_config.yaml").expanduser()
@@ -118,23 +118,6 @@ class AppContext:
                 logger.warning(f"Invalid argument: {argument}")
 
         return LaunchArgs(**temp_args)
-
-    def _load_gateway_config(self, config_path: str) -> dict[str, Any]:
-        path = pathlib.Path(config_path).expanduser()
-        if not path.exists():
-            path.write_text(default_gateway_config)
-            logger.info(f"Created gateway config file: '{path.absolute()}'")
-            config: dict = tomllib.loads(default_gateway_config)
-        else:
-            try:
-                with open(path, "rb") as fs:
-                    config: dict = tomllib.load(fs)
-            except PermissionError:
-                sys.exit(f"No permission to read config file: '{path.absolute()}'")
-        try:
-            return config
-        except:
-            raise
 
     def _load_config(self, path_str: str) -> dict[str, Any]:
         path = pathlib.Path(path_str).expanduser()

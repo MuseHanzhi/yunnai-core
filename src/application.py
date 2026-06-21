@@ -29,21 +29,18 @@ class Application:
     """
     **核心类**
     """
-    def __init__(self, event_loop: asyncio.AbstractEventLoop):
+    def __init__(self):
         # 基础
         sys_config: SystemConfig = SystemConfig.model_validate(app_context.app_config["system"])
         self.thread_executor = ThreadPoolExecutor(sys_config.thread_workers)
-        self.event_loop = event_loop
         self.running: bool = False
         
         # 组件
         self.plugin_manager = PluginManager(self)
         self.llm_client: LLMClient = LLMClient()
-        # self.gateway_client = GatewayClient(self.event_loop)
         self.ipc: IPC | None = self._create_ipc()
         
         self.ipc_handler: IPCHandler = IPCHandler(self, self.ipc)
-        self._tool_functions: list[ToolFunction] = []
         self._identity = str(uuid4())
 
     
@@ -60,18 +57,17 @@ class Application:
             await self.plugin_manager.trigger("on_app_will_close", "before", "event")
             if self.ipc and self.ipc.ready:
                 await self.ipc.emit("on_app_will_close")
-            # await self.gateway_client.emit("on_app_will_close")
             await self.plugin_manager.trigger("on_app_will_close", "after", "event")
             if self.ipc and self.ipc.ready:
                 await self.ipc.stop()
-            # await self.gateway_client.end()
         except:
             ...
         logger.info("app exit")
     
     async def run_in_thread(self, func, *args, **kwargs):
+        event_loop = asyncio.get_running_loop()
         try:
-            await self.event_loop.run_in_executor(
+            await event_loop.run_in_executor(
                 self.thread_executor,
                 lambda: func(*args, **kwargs)
             )
@@ -102,27 +98,25 @@ class Application:
 
         logger.info("setup llm client ok")
 
-    def _setup_tools(self):
-        quit_app_tool = ToolFunction(
-            "self.quit_app",
-            "关闭应用，必须询问用户二次确认",
-            lambda _: self.exit()
-        )
-        self._tool_functions.append(quit_app_tool)
-
     async def initialize(self):
         logger.info("application initialize")
         
         self._setup_llm()
 
-        self._setup_tools()
-
         if self.ipc:
             logger.info("initialize component 'ipc'")
             self.ipc.on_end = lambda: logger.info("component 'ipc' stopped")
-            self.ipc.on_ready = lambda: logger.info("component 'ipc' initialized")
-            self.event_loop.create_task(self.ipc.start())
+            asyncio.create_task(self.ipc.start())
+            timeout = 5
+            for i in range(timeout):
+                if self.ipc.ready:
+                    break
+                await asyncio.sleep(1)
+                logger.info(f"waiting for component 'ipc' ready, timeout: {timeout - i}s")
+            if not self.ipc.ready:
+                raise Exception("component 'ipc' timeout")
             self.ipc_handler.init()
+            logger.info("component 'ipc' initialized")
         
         logger.info("initialize component 'plugin manager'")
         self.plugin_manager.initialize(app_context.fixed_config.plugin_config)
@@ -130,8 +124,12 @@ class Application:
 
         # 触发插件对应时机
         await self.plugin_manager.trigger("on_ready", "before", "event")
+        if self.ipc and self.ipc.ready:
+            try:
+                await self.ipc.emit("on_ready")
+            except Exception as ex:
+                logger.warning("ipc emit on_ready failed", exc_info=ex)
         await self.plugin_manager.trigger("on_ready", "after", "event")
-        asyncio.set_event_loop(self.event_loop)
         logger.info("app ready")
     
     async def _start_response(self, state: MessageState, gateway_additional: dict | None = None):
@@ -217,9 +215,6 @@ class Application:
                 "event",
                 chat_completion = ex
             )
-    
-    def add_tool(self, tool: ToolFunction):
-        self._tool_functions.append(tool)
 
     async def send_message(self, message: str, option: SendMessageOptions):
         logger.info(f"start handle message: {message}")
@@ -234,7 +229,6 @@ class Application:
         else:
             msg.add_image(*option.get("image_urls", []))
         state: MessageState = self.llm_client.create_state(option["model_name"], msg, option.get("stream", True))
-        state.data.function_calls = [item.get_schema() for item in self._tool_functions]
 
         # 取消发送插件验证
         def state_cancel_validate(name: str, _: str):
@@ -245,14 +239,14 @@ class Application:
         state.cancel_validate_handler = state_cancel_validate
         
         # 触发发送消息前事件/hook
-        await self.plugin_manager.trigger("on_message_before_send", "before", state=state, additional=option.get("additional"))
+        await self.plugin_manager.trigger("on_message_before_send", "before", state=state, additional=option.get("additional", {}))
         # 触发IPC
         try:
             if self.ipc and self.ipc.ready:
                 result: dict | None
                 result = await self.ipc.invoke(
                     "on_message_before_send",
-                    {"state": state.to_dict(), "additional": option.get("additional")},
+                    {"state": state.to_dict(), "additional": option.get("additional", {})},
                     3)
                 if result is not None and (n_state := result.get("state")):
                     state.update(n_state)
@@ -263,8 +257,8 @@ class Application:
         except Exception as ex:
             logger.error(f"invoke 'on_message_before_send' exception: {ex}", exc_info=ex)
             state.cancel(self._identity, f"[Application]invoke 'on_message_before_send' exception: {ex}")
-        # 触发发送消息后事件/hook
-        await self.plugin_manager.trigger("on_message_before_send", "after", state=state)
+
+        await self.plugin_manager.trigger("on_message_before_send", "after", state=state, additional=option.get("additional", {}))
 
         # 检查是否被取消
         if state.canceled:
@@ -276,17 +270,13 @@ class Application:
                         "state": state.to_dict(),
                         "additional": option.get("additional")
                     })
-                # await self.gateway_client.emit("on_canceled", {
-                #     "state": state.to_dict(),
-                #     "additional": option.get("additional")
-                # })
             except Exception as ex:
                 logger.error(f"gateway exception: {ex}", exc_info=ex)
             await self.plugin_manager.trigger("on_canceled", "after", "event", state=state)
             return
         
         # 开始响应任务
-        self.event_loop.create_task(self._start_response(state, option.get("additional")))
+        asyncio.create_task(self._start_response(state, option.get("additional")))
         
         # 触发消息发送完成事件/hook
         await self.plugin_manager.trigger("on_message_after_sended", "before", "event", state=state)
@@ -295,9 +285,6 @@ class Application:
                 await self.ipc.emit("on_message_after_sended", {
                     "state": state.to_dict()
                 })
-            # await self.gateway_client.emit("on_message_after_sended", {
-            #     "state": state.to_dict()
-            # })
         except Exception as ex:
             logger.error(f"gateway exception: {ex}", exc_info=ex)
         await self.plugin_manager.trigger("on_message_after_sended", "after", "event", state=state)

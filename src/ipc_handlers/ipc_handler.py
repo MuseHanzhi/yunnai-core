@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 class IPCHandler:
     def __init__(self, app: "Application", ipc: IPC | None):
         self.app = app
-        self.event_loop: asyncio.AbstractEventLoop = app.event_loop
         if ipc is not None:
             self.app_module = AppHandler(self.app, ipc)
         

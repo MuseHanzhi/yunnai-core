@@ -3,7 +3,7 @@ import asyncio
 
 from src.core.tools import ToolFunction
 from src.core.tools.property import PropertyMap
-from src.core.tools.properties import String, Array, Number
+from src.core.tools.properties import String, Array, Number, Integer
 
 from typing import (
     Callable,
@@ -25,6 +25,7 @@ def setup(safe_commands: list[str] | None = None, validate_command_handler: Vali
     global _validate_command_handler, _safe_commands, _tools
     _safe_commands = safe_commands or []
     _validate_command_handler = validate_command_handler
+    
     _tools = [
         ToolFunction(
             name="self.shell",

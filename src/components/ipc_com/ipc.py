@@ -41,6 +41,7 @@ class IPC(IPCBase):
         self._event_handlers: dict[str, Callable[[dict[str, Any]], Coroutine | None]] = {}
         self._once_event_handlers: dict[str, Callable[[dict[str, Any]], Coroutine | None]] = {}
 
+        self._invoke_states_lock = asyncio.Lock()
         self._invoke_states: dict[str, InvokeRequestState] = {}
 
         self.on_ready: Callable[[], Coroutine | None] | None = None
@@ -62,8 +63,10 @@ class IPC(IPCBase):
             if asyncio.iscoroutine(call_result):
                 await call_result
 
+        await self._invoke_states_lock.acquire()
         for state in self._invoke_states.values():
             state.future.cancel()
+        self._invoke_states_lock.release()
 
     
     async def start(self):
@@ -92,7 +95,7 @@ class IPC(IPCBase):
     async def invoke(self, name: str, args: dict[str, Any] | None = None, timeout: int = 0) -> Any:
         if args is None:
             args = {}
-        
+        await self._invoke_states_lock.acquire()
         # 创建请求
         id = str(uuid.uuid4())
         request = InvokeRequest(id=id, method=name, arguments=args)
@@ -104,7 +107,9 @@ class IPC(IPCBase):
         except IPCSendError as e:
             del self._invoke_states[id]
             raise IPCSendError(f"Failed to send invoke request: {e}") from e
-        
+        finally:
+            self._invoke_states_lock.release()
+
         # 等待响应
         try:
             result = await self._invoke_states[id].wait(timeout)
@@ -119,6 +124,7 @@ class IPC(IPCBase):
             raise e
         finally:
             del self._invoke_states[id]
+            self._invoke_states_lock.release()
         
 
     async def emit(self, name: str, args: dict[str, Any] | None = None):
@@ -161,12 +167,16 @@ class IPC(IPCBase):
             if asyncio.iscoroutine(res):
                 res = await res
             return InvokeResponse(id=args.id, message="success", code=0, result=res)
-        except Exception as e:
+        except IPCInvokeError as e:
             return InvokeResponse(id=args.id, message=str(e), code=1)
+        except Exception as e:
+            return InvokeResponse(id=args.id, message=str(e), code=-1)
     
     
     async def invoke_response(self, args: InvokeResponse):
+        await self._invoke_states_lock.acquire()
         state = self._invoke_states.get(args.id)
+        self._invoke_states_lock.release()
         if state:
             if args.code == 0:
                 state.set_result(args.result)

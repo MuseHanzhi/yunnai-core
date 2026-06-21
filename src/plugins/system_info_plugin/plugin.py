@@ -9,7 +9,7 @@ import platform
 class SystemInfoPlugin(Plugin):
     def __init__(self, *args, **keywords):
         super().__init__(*args, **keywords)
-        self.enable = False
+        # self.enable = False
 
     def get_datetime(self):
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -18,7 +18,7 @@ class SystemInfoPlugin(Plugin):
         return requests.get("https://checkip.amazonaws.com/").text
 
     @registry.on_message_before_send()
-    def on_message_before_send(self, state: MessageState, additional: dict | None):
+    def on_message_before_send(self, state: MessageState, additional: dict):
         ip = self.get_ip()
 
         state.append_dyn(f"""

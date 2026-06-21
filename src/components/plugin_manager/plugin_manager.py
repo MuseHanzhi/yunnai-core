@@ -61,7 +61,7 @@ class PluginManager:
         try:
             plugin_class = getattr(plugin_module, entry_class)
             # 实例化插件，并且注入依赖
-            plugin_config_path = (pathlib.Path(app_context.data_home)/ "plugins" / manifest["name"]).expanduser()
+            plugin_config_path = (pathlib.Path(app_context.home_path)/ "plugins" / manifest["name"]).expanduser()
             plugin_config_path.mkdir(parents=True, exist_ok=True)
             plugin_instance = plugin_class(self.app,
                                            plugin_config_path,

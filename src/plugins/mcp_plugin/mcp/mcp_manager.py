@@ -185,7 +185,7 @@ class MCPManager:
                     for tool in resource.tools])
         return tools
     
-    def get_resources(self, mcp_name: str):
+    def get_resources(self, mcp_name: str | None = None):
         if mcp_name:
             return [
                 Resource(
@@ -211,7 +211,7 @@ class MCPManager:
                                        for resource in resource.resources])
         return resources
     
-    def get_prompts(self, mcp_name: str):
+    def get_prompts(self, mcp_name: str | None = None):
         if mcp_name:
             return [
                 Prompt(

@@ -14,13 +14,13 @@ class SkillPlugin(Plugin):
     def __init__(self, *args, **keywords):
         super().__init__(*args, **keywords)
         self.enable = False
-        self.client = SkillsClient(os.path.join(app_context.data_home, "skills"))
+        self.client = SkillsClient(os.path.join(app_context.home_path, "skills"))
         self.current_skill_content = ""
         self.current_skill_name = ""
         self.references = []
     
     @registry.on_message_before_send()
-    def on_message_before_send(self, state: MessageState, additional: dict | None):
+    def on_message_before_send(self, state: MessageState, additional: dict):
         # state.skills = [{"name": skill["name"], "desc": skill["description"]} for skill in self.client.get_all_metadata()]
 
         if self.current_skill_content:

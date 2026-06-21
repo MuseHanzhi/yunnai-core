@@ -53,7 +53,7 @@ class Plugin:
         """
         ...
     
-    def on_message_before_send(self, state: "MessageState", additional: dict | None):
+    def on_message_before_send(self, state: "MessageState", additional: dict):
         """
         向智能体发送信息前触发
         
@@ -75,7 +75,7 @@ class Plugin:
     
     def on_app_will_close(self):
         """
-        向智能体发送信息前触发
+        程序关闭时触发
         
         :param self: 插件实例
         """
