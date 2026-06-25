@@ -1,2 +1,2 @@
-from .property import Property, PropertyMap
+from .property_map import PropertyMap
 from .tool_function import ToolFunction

@@ -4,7 +4,7 @@ import json
 from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
 from openai.types.chat.chat_completion_message_function_tool_call import Function
 from src.components.llm.message_state import MessageState
-from src.plugins import Plugin, registry
+from src.plugin import Plugin, registry
 from src.core.tools import ToolFunction
 
 from .tools import shell_tools

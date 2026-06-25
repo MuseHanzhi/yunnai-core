@@ -2,7 +2,7 @@ import asyncio
 from typing import Callable
 
 from src.types.lfecycle_hooks import Hooks
-from src.plugins.plugin import Plugin
+from src.plugin import Plugin
 
 class HookMetadata:
 

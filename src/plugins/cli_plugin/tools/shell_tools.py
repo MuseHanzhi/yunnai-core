@@ -2,8 +2,8 @@ import subprocess
 import asyncio
 
 from src.core.tools import ToolFunction
-from src.core.tools.property import PropertyMap
-from src.core.tools.properties import String, Array, Number, Integer
+from src.core.tools.property_map import PropertyMap
+from src.core.tools.properties import String, Array, Number
 
 from typing import (
     Callable,
@@ -37,13 +37,13 @@ def setup(safe_commands: list[str] | None = None, validate_command_handler: Vali
                     name="args",
                     description="List of command-line arguments. Each argument MUST be a separate string in the array. Example: ['-l', '-a', '/home/user']. NEVER put arguments inside the 'command' field.",
                     item_type="string",
-                    required=False
+                    default_value=[]
                 ),
                 Number(
                     name="timeout",
                     description="Command execution timeout (in seconds), default is 0 (no timeout)",
                     range=(0, 60),
-                    required=False
+                    default_value=0
                 )
             ]
         )
@@ -52,14 +52,14 @@ def setup(safe_commands: list[str] | None = None, validate_command_handler: Vali
 def get_tools() -> list[ToolFunction]:
     return _tools
 
-def run_shell(cmd: str, args: list[str], timeout: float | None = None) -> str:
+def run_shell(cmd: str, args: list[str], timeout: float) -> str:
     try:
         # 如果 timeout 为 0 或 None，subprocess 默认不限制超时
         shell_result = subprocess.run(
             args=[cmd, *args],
             text=True,
             capture_output=True,
-            timeout=timeout if timeout and timeout > 0 else None
+            timeout=timeout if timeout > 0 else None
         )
     except subprocess.TimeoutExpired:
         return ERROR_TEMPLATE.format(message=f"Execution timeout ({timeout}s)")
@@ -78,9 +78,9 @@ def run_shell(cmd: str, args: list[str], timeout: float | None = None) -> str:
     return SUCCESS_TEMPLATE.format(message=shell_result.stdout.strip())
 
 async def shell(properties: PropertyMap) -> str:
-    cmd = str(properties["command"] or "").strip()
-    args = list(properties["args"] or [])
-    timeout = properties["timeout"]  # ✅ 修复：正确提取 timeout
+    cmd: str = properties["command"]
+    args: list[str] = properties["args"]
+    timeout: float = properties["timeout"]
 
     if not cmd:
         return ERROR_TEMPLATE.format(message="The parameter 'command' is required")
@@ -102,7 +102,7 @@ async def shell(properties: PropertyMap) -> str:
     
     # ✅ 修复：使用 asyncio.to_thread 避免阻塞事件循环
     try:
-        result = await asyncio.to_thread(run_shell, cmd=cmd, args=args, timeout=float(timeout) if timeout else None)
+        result = await asyncio.to_thread(run_shell, cmd=cmd, args=args, timeout=timeout)
         return result
     except Exception as e:
         return ERROR_TEMPLATE.format(message=f"Failed to execute shell: {str(e)}")

@@ -22,11 +22,11 @@ order: 0
 - `order`插件执行顺序，默认为0，数字越小越先执行
 
 ## 2. 创建插件入口类
-按照插件描述文件中的`entry`字段，创建一个插件入口类插件入口类必须继承`BasePlugin`类，如果需要编写`__init__`函数，需要把接收到的参数传给父类，例如：
+按照插件描述文件中的`entry`字段，创建一个插件入口类插件入口类必须继承`Plugin`类，如果需要编写`__init__`函数，需要把接收到的参数传给父类，例如：
 ```python
-from src.plugins.plugin import BasePlugin
+from src.plugin import Plugin
 # plugin.py
-class ExamplePlugin(BasePlugin):
+class ExamplePlugin(Plugin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 插件初始化逻辑
@@ -34,14 +34,14 @@ class ExamplePlugin(BasePlugin):
 
 
 ## 3. 编写插件Hook逻辑
-插件Hook方法参数必须和`BasePlugin`类中的方法参数一致，当然方法名可以不一样，Hook支持异步，具体参数名称可以参考`src.plugins.plugin`的`BasePlugin`类定义
+插件Hook方法参数必须和`Plugin`类中的方法参数一致，当然方法名可以不一样，Hook支持异步，具体参数名称可以参考`src.plugin`的`Plugin`类定义
 
-Hook方法需要通过`src.plugins.hook_registry`中的`registry`注释，示例如下
+Hook方法需要通过`src.plugin.hook_registry`中的`registry`注释，示例如下
 ``` python
-from src.plugins.hook_registry import registry  # 导入装饰器对象
-from src.plugins.plugin import BasePlugin
+from src.plugin.hook_registry import registry  # 导入装饰器对象
+from src.plugin import Plugin
 # plugin.py
-class ExamplePlugin(BasePlugin):
+class ExamplePlugin(Plugin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 插件初始化逻辑
@@ -51,15 +51,15 @@ class ExamplePlugin(BasePlugin):
         print("程序就绪")
 ```
 
-## 4. BasePlugin提供的属性
+## 4. Plugin提供的属性
 
-**BasePlugin**提供的属性如下
+**Plugin**提供的属性如下
 - `self.info`: 插件描述
 - `self.application`: 主程序实例
 - `self.config_home_path`: 插件目录
 - `self.enable`: 插件状态，False时此插件下的Hook不会被触发，也就是插件开关
 
-## 5. BasePlugin定义
+## 5. Plugin定义
 ### 1. deinit
 这是插件被卸载时执行的方法，不算是hook
 

@@ -1,15 +1,7 @@
-import pathlib
 import tomllib
-import asyncio
-import json
 
-from mcp.types import Tool
-from openai.types.chat import ChatCompletionChunk, ChatCompletion
-
-from src.plugins.plugin import Plugin
-from src.components.ipc_com.ipc import IPC
-# from src.components.gateway.gateway_client import GatewayClient
-from src.plugins.hook_registry import registry
+from src.plugin.plugin import Plugin
+from src.plugin.hook_registry import registry
 from src.core.logger.logger import LogCreator
 from src.components.llm.message_state import MessageState
 from src.plugins.mcp_plugin import ipc_handlers

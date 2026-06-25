@@ -1,19 +1,27 @@
 from .properties.base_property import BaseProperty
-from .property import PropertyMap
+from .property_map import PropertyMap
 
 import asyncio
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from typing import Callable, Any
 
 class ToolFunction:
-    async def __call__(self, properties: dict) -> Any:
-        property_map = PropertyMap(properties)
-        call_res = self.func(property_map)
-        if asyncio.iscoroutine(call_res):
-            result = await call_res
-        else:
-            result = call_res
-        return result
+    async def __call__(self, arguments: dict) -> Any:
+        property_map = PropertyMap(self.properties)
+        try:
+            property_map.validate(arguments)
+        except Exception as ex:
+            return f"# Call '{self.name}' result  \nCall function error: {ex}"
+        
+        try:
+            call_res = self.func(property_map)
+            if asyncio.iscoroutine(call_res):
+                result = await call_res
+            else:
+                result = call_res
+        except Exception as ex:
+            return f"# Call '{self.name}' result  \nCall function exception: {ex}"
+        return f"# Call '{self.name}' result  \n{result}"
 
     def __init__(self, name: str, description: str, func: Callable[[PropertyMap], Any], properties: list[BaseProperty] | None = None):
         self.name = name

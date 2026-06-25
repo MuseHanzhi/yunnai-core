@@ -2,8 +2,8 @@ import os
 
 from src.core import app_context
 from src.components.llm.message_state import MessageState
-from src.plugins.plugin import Plugin
-from src.plugins.hook_registry import registry
+from src.plugin.plugin import Plugin
+from src.plugin.hook_registry import registry
 from .skill.client import Client as SkillsClient
 from .skill.error import SkillNotFoundError
 from .types import *
