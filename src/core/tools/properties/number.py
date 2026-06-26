@@ -26,7 +26,8 @@ class Number(BaseProperty):
         return schema
     
     def validate(self, value: Any) -> bool:
-        super().validate(value)
+        if not (isinstance(value, int) or isinstance(value, float)):
+            raise TypeError(f"The '{self.name}' parameter is of the wrong type. It should be of type '{self.type}'")
         if self.range and not (self.range[0] <= value <= self.range[1]):
             raise ValueError(f"The parameter '{self.name}' must be between {self.range[0]} and {self.range[1]}")
         return True
