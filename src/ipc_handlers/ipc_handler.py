@@ -3,7 +3,6 @@ from typing import (
     TYPE_CHECKING
 )
 
-# from src.components.gateway.gateway_client import GatewayClient
 from src.components.ipc_com.ipc import IPC
 from .modules.application_module.handler import Handler as AppHandler
 

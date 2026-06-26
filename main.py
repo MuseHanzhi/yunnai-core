@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import sys
 import os
 
-from src.core import app_context
+from src.core.app_context import app_context
 from src.core.logger.logger import LogCreator
 from src.application import Application
 

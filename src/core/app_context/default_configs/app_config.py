@@ -18,10 +18,6 @@ default_config = """logging:    # 日志
             - 
                 <<: *file_handler
 system:     # 系统配置
-    require_env:
-        - "DASHSCOPE_API_KEY"
-        # - "KIMI_API_KEY"
-        # - "DOUAO_API_KEY"
     thread_workers: null
 llm:        # 大模型
     default: "qwen"

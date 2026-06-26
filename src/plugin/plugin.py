@@ -31,6 +31,8 @@ class Plugin:
         self.info = info
         self.config_home_path = config_home
 
+    async def call_tool(self, name: str, arguments: dict) -> Any:
+        return f"# 调用结果\n 该工具'{name}'功能未实现"
 
     def deinit(self):
         """

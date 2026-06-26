@@ -8,9 +8,9 @@ import yaml
 
 from src.plugin.plugin import Plugin, PluginInfo
 from src.core.logger.logger import LogCreator
-from src.core.app_context.types import PluginConfigOption
-from src.types.lfecycle_hooks import Hooks
-from src.core import app_context
+from src.types import PluginConfigOption
+from src.types import Hooks
+from src.core.app_context import app_context
 
 from .hook_metadata import HookMetadata
 

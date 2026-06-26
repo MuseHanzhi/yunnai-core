@@ -55,7 +55,7 @@ app_context.launch_args.pwd      # 工作目录
 ## 使用示例
 
 ```python
-from src.core import app_context
+from src.core.app_context import app_context
 
 # 获取系统配置
 sys_config = app_context.app_config["system"]

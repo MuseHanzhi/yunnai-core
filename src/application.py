@@ -10,8 +10,7 @@ from openai.types.chat import (
 )
 
 from src.core.logger.logger import LogCreator
-from src.core.tools import ToolFunction
-from .types.configs import *
+from .types import *
 
 from src.components.ipc_com.exceptions import InvokeTimeoutError
 from src.components.llm.client import Client as LLMClient, MessageState
@@ -19,10 +18,11 @@ from src.components.plugin_manager.plugin_manager import PluginManager
 from src.components.llm.message.tool_message import ToolMessage
 from src.components.llm.message.user_message import UserMessage
 from src.components.ipc_com.ipc import IPC
+from src.components.event_bus import EventBus
 from src.ipc_handlers.ipc_handler import IPCHandler
 
-from src.types.send_message_options import SendMessageOptions
-from src.core import app_context
+from .types import SendMessageOptions
+from src.core.app_context import app_context
 
 logger = LogCreator.instance.create(__name__)
 class Application:
@@ -36,6 +36,7 @@ class Application:
         self.running: bool = False
         
         # 组件
+        self.event_bus = EventBus()
         self.plugin_manager = PluginManager(self)
         self.llm_client: LLMClient = LLMClient()
         self.ipc: IPC | None = self._create_ipc()
@@ -164,6 +165,9 @@ class Application:
                         "event",
                         chat_completion = chunk
                     )
+                    if chunk.usage:
+                        self.event_bus.emit_model_usage(state.data.model_name, chunk.usage)
+                    
             else:
                 # 非流式响应
                 completion: ChatCompletion = await self.llm_client.non_stream_response(state)
@@ -191,6 +195,8 @@ class Application:
                     "event",
                     chat_completion = completion
                 )
+                if completion.usage:
+                    self.event_bus.emit_model_usage(state.data.model_name, completion.usage)
             logger.info("llm response end")
         except Exception as ex:
             await self.plugin_manager.trigger(

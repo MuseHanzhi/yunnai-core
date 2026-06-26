@@ -2,7 +2,6 @@ from .message.message import Message
 from .message.user_message import UserMessage
 from .message.tool_message import ToolMessage
 
-from mcp.types import Tool
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -68,9 +67,8 @@ class MessageStateData(BaseModel):
     top_prompt: str = Field(default_factory=lambda: "")
     mcp_list: list[MCPData] = Field(default_factory=list)
     skills: list[SkillData] = Field(default_factory=list)
-    tools: list[Tool] = Field(default_factory=list)
     option: dict = Field(default_factory=dict)
-    function_calls: list[ChatCompletionToolParam] = Field(default_factory=list)
+    tools: list[ChatCompletionToolParam] = Field(default_factory=list)
 
     @field_validator('message', mode='before')
     @classmethod

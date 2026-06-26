@@ -2,7 +2,6 @@ from typing import AsyncGenerator, Any
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
-from mcp.types import Tool
 
 from .message.message import Message
 from .message.user_message import UserMessage
@@ -27,23 +26,6 @@ class Client:
         self._client.base_url = credential["base_url"]
         self.default_extra_body = extra_body
 
-    def _map_tools(self, tools: list[Tool], function_calls: list[ChatCompletionToolParam]):
-        temp_tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description or "No description provided.",
-                    "parameters": tool.inputSchema
-                }
-            }
-            for tool in tools
-        ]
-        return [
-            *function_calls,
-            *temp_tools
-        ]
-
     def _build_sys_prompt(self, top_prompt: str, dyn_prompt: str, mcp_list: list[MCPData], skill_list: list[SkillData]):
         mcp_prompt = ""
         skill_prompt = ""
@@ -67,7 +49,7 @@ class Client:
             **state.option,
             "model": state.model_name,
             "stream": state.is_stream,
-            "tools": self._map_tools(state.tools, state.function_calls),
+            "tools": state.tools,
             "messages": [
                 {
                     "role": "system",

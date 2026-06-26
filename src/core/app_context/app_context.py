@@ -1,6 +1,4 @@
-import tomllib
 import pathlib
-import asyncio
 import sys
 import os
 
@@ -18,7 +16,7 @@ from typing import (
     Any,
     Literal
 )
-from .types import (
+from src.types import (
     LaunchArgs,
     FixedConfigOption
 )
@@ -88,7 +86,7 @@ class AppContext:
         return path
 
     def _get_home_path(self) -> pathlib.Path:
-        path = pathlib.Path("~", f".{self.fixed_config.system_info.name}").expanduser().absolute()
+        path = pathlib.Path("~", f".{self.fixed_config.application_info.name}").expanduser().absolute()
         path.mkdir(exist_ok=True, parents=True)
         return path
     

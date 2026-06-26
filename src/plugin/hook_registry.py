@@ -1,4 +1,4 @@
-from src.types.lfecycle_hooks import Hooks
+from src.types import Hooks
 from .plugin import Timing
 
 class HookRegistry:
