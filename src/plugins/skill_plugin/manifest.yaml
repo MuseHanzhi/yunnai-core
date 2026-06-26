@@ -1,7 +1,0 @@
-name: "skill_plugin"
-author: "慕色寒枝"
-version: "1.0.0"
-description: "添加Agent Skills支持"
-entry: "plugin.SkillPlugin"
-type: "system"
-order: 2
